@@ -18,7 +18,7 @@ class ParentApp extends StatelessWidget {
 
       debugShowCheckedModeBanner: false,
 
-      title: "SmartKids Patashala",
+      title: "Smart School",
 
       theme: ThemeData(
         primarySwatch: Colors.blue,

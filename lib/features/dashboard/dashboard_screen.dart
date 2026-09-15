@@ -1,4 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
+
+import 'package:parent_app/features/mcq/daily_test_screen.dart';
+import 'package:parent_app/models/mcq_test.dart';
+import 'package:parent_app/widgets/mcq/daily_test_card.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -16,10 +21,7 @@ class DashboardScreen extends StatelessWidget {
           children: [
             Text(
               "Good Morning 👋",
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.grey,
-              ),
+              style: TextStyle(fontSize: 13, color: Colors.grey),
             ),
             Text(
               "Ramesh Kumar",
@@ -35,10 +37,7 @@ class DashboardScreen extends StatelessWidget {
             children: [
               IconButton(
                 onPressed: () {},
-                icon: const Icon(
-                  Icons.notifications_none,
-                  color: Colors.black,
-                ),
+                icon: const Icon(Icons.notifications_none, color: Colors.black),
               ),
               Positioned(
                 right: 10,
@@ -53,44 +52,35 @@ class DashboardScreen extends StatelessWidget {
                   child: const Center(
                     child: Text(
                       "3",
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                      ),
+                      style: TextStyle(color: Colors.white, fontSize: 10),
                     ),
                   ),
                 ),
-              )
+              ),
             ],
-          )
+          ),
         ],
       ),
 
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-
           //---------------------------------------
           // School Card
           //---------------------------------------
-
           Container(
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [
-                  Color(0xff1565C0),
-                  Color(0xff42A5F5),
-                ],
+                colors: [Color(0xff1565C0), Color(0xff42A5F5)],
               ),
               borderRadius: BorderRadius.circular(20),
             ),
             child: const Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-
                 Text(
-                  "SmartKids PATASHALA",
+                  "The Conroy School",
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 22,
@@ -102,9 +92,7 @@ class DashboardScreen extends StatelessWidget {
 
                 Text(
                   "Learning Today, Leading Tomorrow",
-                  style: TextStyle(
-                    color: Colors.white70,
-                  ),
+                  style: TextStyle(color: Colors.white70),
                 ),
               ],
             ),
@@ -115,7 +103,6 @@ class DashboardScreen extends StatelessWidget {
           //---------------------------------------
           // Fee Reminder
           //---------------------------------------
-
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -124,13 +111,9 @@ class DashboardScreen extends StatelessWidget {
             ),
             child: Row(
               children: [
-
                 const CircleAvatar(
                   backgroundColor: Colors.orange,
-                  child: Icon(
-                    Icons.currency_rupee,
-                    color: Colors.white,
-                  ),
+                  child: Icon(Icons.currency_rupee, color: Colors.white),
                 ),
 
                 const SizedBox(width: 15),
@@ -139,27 +122,19 @@ class DashboardScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-
                       Text(
                         "Fee Reminder",
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                        ),
+                        style: TextStyle(fontWeight: FontWeight.bold),
                       ),
 
                       SizedBox(height: 4),
 
-                      Text(
-                        "₹8,000 due before 10 Aug 2026",
-                      ),
+                      Text("₹8,000 due before 10 Aug 2026"),
                     ],
                   ),
                 ),
 
-                ElevatedButton(
-                  onPressed: () {},
-                  child: const Text("Pay"),
-                )
+                ElevatedButton(onPressed: () {}, child: const Text("Pay")),
               ],
             ),
           ),
@@ -167,15 +142,28 @@ class DashboardScreen extends StatelessWidget {
           const SizedBox(height: 20),
 
           //---------------------------------------
+          // Daily MCQ Test
+          //---------------------------------------
+          DailyTestCard(
+            test: McqTest.dummy(),
+            onStartTest: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => DailyTestScreen(test: McqTest.dummy()),
+                ),
+              );
+            },
+          ),
+
+          const SizedBox(height: 20),
+
+          //---------------------------------------
           // My Children
           //---------------------------------------
-
           const Text(
             "My Children",
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
 
           const SizedBox(height: 15),
@@ -203,13 +191,9 @@ class DashboardScreen extends StatelessWidget {
           //---------------------------------------
           // Quick Actions
           //---------------------------------------
-
           const Text(
             "Quick Actions",
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
 
           const SizedBox(height: 15),
@@ -221,7 +205,6 @@ class DashboardScreen extends StatelessWidget {
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
             children: const [
-
               _Quick(Icons.calendar_today, "Attendance"),
               _Quick(Icons.menu_book, "Homework"),
               _Quick(Icons.bar_chart, "Results"),
@@ -252,16 +235,12 @@ class DashboardScreen extends StatelessWidget {
       ),
       child: Row(
         children: [
-
           CircleAvatar(
             radius: 28,
             backgroundColor: color,
             child: Text(
               name[0],
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 22,
-              ),
+              style: const TextStyle(color: Colors.white, fontSize: 22),
             ),
           ),
 
@@ -271,7 +250,6 @@ class DashboardScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-
                 Text(
                   name,
                   style: const TextStyle(
@@ -291,7 +269,7 @@ class DashboardScreen extends StatelessWidget {
             ),
           ),
 
-          const Icon(Icons.arrow_forward_ios)
+          const Icon(Icons.arrow_forward_ios),
         ],
       ),
     );
@@ -314,11 +292,7 @@ class _Quick extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-
-          Icon(
-            icon,
-            color: Color(0xff1565C0),
-          ),
+          Icon(icon, color: Color(0xff1565C0)),
 
           SizedBox(height: 8),
 
@@ -326,7 +300,7 @@ class _Quick extends StatelessWidget {
             title,
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 12),
-          )
+          ),
         ],
       ),
     );

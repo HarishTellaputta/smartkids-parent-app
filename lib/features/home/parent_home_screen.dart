@@ -27,6 +27,10 @@ import 'package:carousel_slider/carousel_slider.dart';
 import '../leave/leave_request_screen.dart';
 import '../birthday/birthday_wishes_screen.dart';
 
+import '../mcq/daily_test_screen.dart';
+import '../../models/mcq_test.dart';
+import '../../widgets/mcq/daily_test_card.dart';
+
 class ParentHomeScreen extends StatelessWidget {
   const ParentHomeScreen({super.key});
 
@@ -66,8 +70,12 @@ class ParentHomeScreen extends StatelessWidget {
         ),
 
         title: const Text(
-          "SmartKids",
-          style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+          "Smart School",
+          style: TextStyle(
+            color: Color(0xFF1565C0),
+            fontWeight: FontWeight.bold,
+            fontSize: 20,
+          ),
         ),
 
         actions: [
@@ -261,7 +269,7 @@ class ParentHomeScreen extends StatelessWidget {
                         left: 15,
                         bottom: 15,
                         child: Text(
-                          "SmartKids PATASHALA",
+                          "Smart School",
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 20,
@@ -273,6 +281,30 @@ class ParentHomeScreen extends StatelessWidget {
                   ),
                 );
               }).toList(),
+            ),
+
+            const SizedBox(height: 20),
+
+            // =====================================================
+            // DAILY MCQ TEST
+            // =====================================================
+            const Text(
+              "🧠 Daily Test",
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+
+            const SizedBox(height: 12),
+
+            DailyTestCard(
+              test: McqTest.dummy(),
+              onStartTest: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => DailyTestScreen(test: McqTest.dummy()),
+                  ),
+                );
+              },
             ),
 
             const SizedBox(height: 25),
@@ -429,9 +461,7 @@ class ParentHomeScreen extends StatelessWidget {
         // Open Birthday Wishes Screen
         Navigator.push(
           context,
-          MaterialPageRoute(
-            builder: (_) => const BirthdayWishesScreen(),
-          ),
+          MaterialPageRoute(builder: (_) => const BirthdayWishesScreen()),
         );
       },
       child: Container(
