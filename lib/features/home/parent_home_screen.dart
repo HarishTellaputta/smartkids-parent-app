@@ -19,6 +19,8 @@ import '../../models/student_response.dart';
 import '../../models/student_fee_response.dart';
 import '../../services/api_service.dart';
 import '../../features/mcq/mcq_tests_screen.dart';
+import '../../features/birthday/birthday_wishes_screen.dart';
+import '../../features/birthday/models/student_birthday_chat.dart';
 
 class ParentHomeScreen extends StatefulWidget {
   const ParentHomeScreen({super.key});
@@ -37,7 +39,7 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
   bool isLoadingStudent = true;
   bool isLoadingFees = false;
 
-  List<dynamic> birthdayStudents = [];
+  List<StudentBirthdayChat> birthdayStudents = [];
   bool isLoadingBirthday = false;
 
   @override
@@ -259,26 +261,8 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
   // ============================================================
   // LOAD BIRTHDAY STATUS
   // ============================================================
-
   Future<void> _loadBirthdayStatus() async {
-    if (selectedStudent == null) {
-      print('🎂 Cannot load birthday status: selectedStudent is null');
-
-      if (!mounted) return;
-
-      setState(() {
-        birthdayStudents = [];
-        isLoadingBirthday = false;
-      });
-
-      return;
-    }
-
-    print(
-      '🎂 Loading birthday status for student: '
-      '${selectedStudent!.name} '
-      '(ID: ${selectedStudent!.id})',
-    );
+    print('🎂 Loading today school birthdays...');
 
     if (mounted) {
       setState(() {
@@ -290,7 +274,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
       final response = await ApiService.getBirthdayChat();
 
       print('🎂 Birthday API status: ${response.statusCode}');
-
       print('🎂 Birthday API response: ${response.body}');
 
       if (!mounted) return;
@@ -304,12 +287,25 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
         if (data is List) {
           print('🎂 Birthday students count: ${data.length}');
 
+          final birthdays = data
+              .map(
+                (item) =>
+                    StudentBirthdayChat.fromJson(item as Map<String, dynamic>),
+              )
+              .where((birthday) => birthday.birthdayToday)
+              .toList();
+
+          print(
+            '🎂 Today birthday students after filtering: '
+            '${birthdays.length}',
+          );
+
           setState(() {
-            birthdayStudents = data;
+            birthdayStudents = birthdays;
             isLoadingBirthday = false;
           });
         } else {
-          print('⚠️ Birthday response is not a List');
+          print('⚠️ Birthday API response is not a List');
 
           setState(() {
             birthdayStudents = [];
@@ -336,7 +332,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
       });
     }
   }
-
   // ============================================================
   // BUILD
   // ============================================================
@@ -429,6 +424,10 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
             // PENDING FEE
             // ==================================================
             _buildFeeReminder(),
+
+            const SizedBox(height: 25),
+
+            _buildBirthdaySection(),
 
             const SizedBox(height: 25),
 
@@ -875,6 +874,164 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
     );
   }
 
+  // ============================================================
+  // TODAY'S BIRTHDAYS
+  // ============================================================
+
+  Widget _buildBirthdaySection() {
+    if (isLoadingBirthday || birthdayStudents.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          "🎂 Today's Birthdays",
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        ),
+
+        const SizedBox(height: 14),
+
+        SizedBox(
+          height: 118,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: birthdayStudents.length,
+            itemBuilder: (context, index) {
+              final birthday = birthdayStudents[index];
+
+              return GestureDetector(
+                onTap: () {
+                  print(
+                    '🎂 Opening birthday wishes for '
+                    '${birthday.studentName} '
+                    '(ID: ${birthday.studentId})',
+                  );
+
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          BirthdayWishesScreen(studentId: birthday.studentId),
+                    ),
+                  );
+                },
+
+                child: Container(
+                  width: 88,
+                  margin: const EdgeInsets.only(right: 12),
+
+                  child: Column(
+                    children: [
+                      // ==================================================
+                      // BIRTHDAY CIRCLE
+                      // ==================================================
+
+                      Container(
+                        width: 76,
+                        height: 76,
+                        padding: const EdgeInsets.all(3),
+
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+
+                          gradient: const LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Color(0xffFF9800),
+                              Color(0xffE91E63),
+                              Color(0xff9C27B0),
+                            ],
+                          ),
+
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.pink.withOpacity(0.20),
+                              blurRadius: 8,
+                              spreadRadius: 2,
+                            ),
+                          ],
+                        ),
+
+                        child: Container(
+                          padding: const EdgeInsets.all(2),
+
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.white,
+                          ),
+
+                          child: ClipOval(
+                            child:
+                                birthday.photoUrl != null &&
+                                    birthday.photoUrl!.trim().isNotEmpty
+                                ? Image.network(
+                                    birthday.photoUrl!,
+                                    fit: BoxFit.cover,
+
+                                    errorBuilder: (_, __, ___) {
+                                      return _birthdayInitial(
+                                        birthday.studentName,
+                                      );
+                                    },
+                                  )
+                                : _birthdayInitial(birthday.studentName),
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 7),
+
+                      // ==================================================
+                      // STUDENT NAME
+                      // ==================================================
+                      Text(
+                        birthday.studentName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+
+                      const SizedBox(height: 2),
+
+                      const Text(
+                        "🎂 Birthday",
+                        maxLines: 1,
+
+                        style: TextStyle(fontSize: 10, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _birthdayInitial(String name) {
+    return Container(
+      color: Colors.white,
+      alignment: Alignment.center,
+      child: Text(
+        name.isNotEmpty ? name[0].toUpperCase() : "?",
+        style: const TextStyle(
+          fontSize: 28,
+          fontWeight: FontWeight.bold,
+          color: Color(0xff1565C0),
+        ),
+      ),
+    );
+  }
   // ============================================================
   // QUICK ACCESS ITEM
   // ============================================================
