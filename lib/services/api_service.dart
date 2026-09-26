@@ -151,34 +151,34 @@ class ApiService {
   // ============================================================
   // DELETE
   // ============================================================
-static Future<http.Response> delete(
-  String endpoint, {
-  Map<String, dynamic>? body,
-  bool requiresAuth = false,
-}) async {
-  final url = '${ApiConfig.baseUrl}$endpoint';
+  static Future<http.Response> delete(
+    String endpoint, {
+    Map<String, dynamic>? body,
+    bool requiresAuth = false,
+  }) async {
+    final url = '${ApiConfig.baseUrl}$endpoint';
 
-  try {
-    print('🚀 DELETE: $url');
+    try {
+      print('🚀 DELETE: $url');
 
-    if (body != null) {
-      print('📤 BODY: $body');
+      if (body != null) {
+        print('📤 BODY: $body');
+      }
+
+      final response = await http.delete(
+        Uri.parse(url),
+        headers: await _headers(requiresAuth: requiresAuth),
+        body: body != null ? jsonEncode(body) : null,
+      );
+
+      _debugResponse('DELETE', url, response);
+
+      return response;
+    } catch (e) {
+      _debugError('DELETE', url, e);
+      rethrow;
     }
-
-    final response = await http.delete(
-      Uri.parse(url),
-      headers: await _headers(requiresAuth: requiresAuth),
-      body: body != null ? jsonEncode(body) : null,
-    );
-
-    _debugResponse('DELETE', url, response);
-
-    return response;
-  } catch (e) {
-    _debugError('DELETE', url, e);
-    rethrow;
   }
-}
   // ============================================================
   // JSON HELPER
   // ============================================================
@@ -284,18 +284,16 @@ static Future<http.Response> delete(
   // ============================================================
   // BIRTHDAY CHAT - REMOVE REACTION
   // ============================================================
-static Future<http.Response> removeBirthdayReaction(
-  int messageId,
-  String reaction,
-) async {
-  return await delete(
-    '/api/v1/birthday-chat/messages/$messageId/reaction',
-    body: {
-      'reaction': reaction,
-    },
-    requiresAuth: true,
-  );
-}
+  static Future<http.Response> removeBirthdayReaction(
+    int messageId,
+    String reaction,
+  ) async {
+    return await delete(
+      '/api/v1/birthday-chat/messages/$messageId/reaction',
+      body: {'reaction': reaction},
+      requiresAuth: true,
+    );
+  }
 
   // ============================================================
   // PARENT - GET LOGGED-IN PARENT PROFILE + CHILDREN
@@ -443,27 +441,19 @@ static Future<http.Response> removeBirthdayReaction(
     );
   }
 
-
- 
   // ============================================================
   // MCQ - GET AVAILABLE TESTS
   // ============================================================
 
   static Future<http.Response> getMcqTests() async {
-    return await get(
-      '/api/v1/mcq-tests',
-      requiresAuth: true,
-    );
+    return await get('/api/v1/mcq-tests', requiresAuth: true);
   }
 
   // ============================================================
   // MCQ - START TEST
   // ============================================================
 
-  static Future<http.Response> startMcqTest(
-    int testId,
-    int studentId,
-  ) async {
+  static Future<http.Response> startMcqTest(int testId, int studentId) async {
     return await post(
       '/api/v1/mcq-tests/$testId/start?studentId=$studentId',
       requiresAuth: true,
@@ -483,10 +473,7 @@ static Future<http.Response> removeBirthdayReaction(
     return await put(
       '/api/v1/mcq-tests/attempts/$attemptId/answers'
       '?studentId=$studentId',
-      body: {
-        'questionId': questionId,
-        'answer': answer,
-      },
+      body: {'questionId': questionId, 'answer': answer},
       requiresAuth: true,
     );
   }
@@ -510,14 +497,50 @@ static Future<http.Response> removeBirthdayReaction(
   // MCQ - STUDENT HISTORY
   // ============================================================
 
-  static Future<http.Response> getMcqHistory(
-    int studentId,
-  ) async {
+  static Future<http.Response> getMcqHistory(int studentId) async {
     return await get(
       '/api/v1/mcq-tests/history/$studentId',
       requiresAuth: true,
     );
   }
 
+  static Future<http.Response> getStudentTimetable(int studentId) async {
+    return await get(
+      '/api/v1/teacher-timetables/student/$studentId',
+      requiresAuth: true,
+    );
+  }
 
+  static Future<http.Response> getStudentHomework(
+    int classId,
+    int sectionId,
+  ) async {
+    return await get(
+      '/api/v1/homeworks/class/$classId/section/$sectionId',
+      requiresAuth: true,
+    );
+  }
+
+  static Future<http.Response> getNotices({
+    int? classId,
+    int? sectionId,
+  }) async {
+    String endpoint = '/api/v1/notices';
+
+    final params = <String>[];
+
+    if (classId != null) {
+      params.add('classId=$classId');
+    }
+
+    if (sectionId != null) {
+      params.add('sectionId=$sectionId');
+    }
+
+    if (params.isNotEmpty) {
+      endpoint += '?${params.join('&')}';
+    }
+
+    return await get(endpoint, requiresAuth: true);
+  }
 }

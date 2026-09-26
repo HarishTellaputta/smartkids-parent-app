@@ -21,6 +21,7 @@ import '../../services/api_service.dart';
 import '../../features/mcq/mcq_tests_screen.dart';
 import '../../features/birthday/birthday_wishes_screen.dart';
 import '../../features/birthday/models/student_birthday_chat.dart';
+import '../notices/notices_screen.dart';
 
 class ParentHomeScreen extends StatefulWidget {
   const ParentHomeScreen({super.key});
@@ -453,9 +454,12 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
               children: [
                 menuItem(
                   context,
-                  Icons.person,
-                  "Profile",
-                  const StudentProfileScreen(),
+                  Icons.campaign,
+                  "Notices",
+                  NoticesScreen(
+                    classId: selectedStudent!.classId!,
+                    sectionId: selectedStudent!.sectionId!,
+                  ),
                 ),
 
                 menuItem(
@@ -471,14 +475,16 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
                   context,
                   Icons.book,
                   "Homework",
-                  const HomeworkScreen(),
+                  HomeworkScreen(
+                    classId: selectedStudent!.classId!,
+                    sectionId: selectedStudent!.sectionId!,
+                  ),
                 ),
-
                 menuItem(
                   context,
                   Icons.schedule,
                   "Timetable",
-                  const TimetableScreen(),
+                  TimetableScreen(studentId: selectedStudent!.id),
                 ),
 
                 menuItem(
