@@ -151,30 +151,34 @@ class ApiService {
   // ============================================================
   // DELETE
   // ============================================================
+static Future<http.Response> delete(
+  String endpoint, {
+  Map<String, dynamic>? body,
+  bool requiresAuth = false,
+}) async {
+  final url = '${ApiConfig.baseUrl}$endpoint';
 
-  static Future<http.Response> delete(
-    String endpoint, {
-    bool requiresAuth = false,
-  }) async {
-    final url = '${ApiConfig.baseUrl}$endpoint';
+  try {
+    print('🚀 DELETE: $url');
 
-    try {
-      print('🚀 DELETE: $url');
-
-      final response = await http.delete(
-        Uri.parse(url),
-        headers: await _headers(requiresAuth: requiresAuth),
-      );
-
-      _debugResponse('DELETE', url, response);
-
-      return response;
-    } catch (e) {
-      _debugError('DELETE', url, e);
-      rethrow;
+    if (body != null) {
+      print('📤 BODY: $body');
     }
-  }
 
+    final response = await http.delete(
+      Uri.parse(url),
+      headers: await _headers(requiresAuth: requiresAuth),
+      body: body != null ? jsonEncode(body) : null,
+    );
+
+    _debugResponse('DELETE', url, response);
+
+    return response;
+  } catch (e) {
+    _debugError('DELETE', url, e);
+    rethrow;
+  }
+}
   // ============================================================
   // JSON HELPER
   // ============================================================
@@ -280,16 +284,18 @@ class ApiService {
   // ============================================================
   // BIRTHDAY CHAT - REMOVE REACTION
   // ============================================================
-
-  static Future<http.Response> removeBirthdayReaction(
-    int messageId,
-    String reaction,
-  ) async {
-    return await delete(
-      '/api/v1/birthday-chat/messages/$messageId/reaction',
-      requiresAuth: true,
-    );
-  }
+static Future<http.Response> removeBirthdayReaction(
+  int messageId,
+  String reaction,
+) async {
+  return await delete(
+    '/api/v1/birthday-chat/messages/$messageId/reaction',
+    body: {
+      'reaction': reaction,
+    },
+    requiresAuth: true,
+  );
+}
 
   // ============================================================
   // PARENT - GET LOGGED-IN PARENT PROFILE + CHILDREN

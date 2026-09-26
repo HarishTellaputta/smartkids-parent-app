@@ -30,6 +30,11 @@ class _BirthdayWishesScreenState extends State<BirthdayWishesScreen> {
 
   int? loggedInUserId;
 
+  final FocusNode wishFocusNode = FocusNode();
+
+  BirthdayChatMessage? replyingTo;
+  BirthdayChatMessage? editingMessage;
+
   bool isLoading = true;
   bool isSending = false;
   bool showPhoto = true;
@@ -46,6 +51,7 @@ class _BirthdayWishesScreenState extends State<BirthdayWishesScreen> {
   void dispose() {
     wishController.dispose();
     scrollController.dispose();
+    wishFocusNode.dispose();
     super.dispose();
   }
 
@@ -106,23 +112,26 @@ class _BirthdayWishesScreenState extends State<BirthdayWishesScreen> {
       // ------------------------------------------------------------
       // PARSE BIRTHDAY LIST
       // ------------------------------------------------------------
-      final birthdayList = decoded.map((item) {
-        print('🎂 Parsing birthday item = $item');
+      final birthdayList = decoded
+          .map((item) {
+            print('🎂 Parsing birthday item = $item');
 
-        final parsed = StudentBirthdayChat.fromJson(
-          item as Map<String, dynamic>,
-        );
+            final parsed = StudentBirthdayChat.fromJson(
+              item as Map<String, dynamic>,
+            );
 
-        print(
-          '✅ Parsed birthday: '
-          'studentId=${parsed.studentId}, '
-          'studentName=${parsed.studentName}, '
-          'admissionNo=${parsed.admissionNo}, '
-          'photoUrl=${parsed.photoUrl}',
-        );
+            print(
+              '✅ Parsed birthday: '
+              'studentId=${parsed.studentId}, '
+              'studentName=${parsed.studentName}, '
+              'birthdayToday=${parsed.birthdayToday}, '
+              'photoUrl=${parsed.photoUrl}',
+            );
 
-        return parsed;
-      }).toList();
+            return parsed;
+          })
+          .where((item) => item.birthdayToday)
+          .toList();
 
       print('🎂 Parsed birthdayList count = ${birthdayList.length}');
 
@@ -235,17 +244,13 @@ class _BirthdayWishesScreenState extends State<BirthdayWishesScreen> {
   Future<void> sendWish() async {
     final message = wishController.text.trim();
 
-    if (message.isEmpty) {
+    if (message.isEmpty || isSending) {
       return;
     }
 
     final student = birthdayData;
 
     if (student == null) {
-      return;
-    }
-
-    if (isSending) {
       return;
     }
 
@@ -256,6 +261,76 @@ class _BirthdayWishesScreenState extends State<BirthdayWishesScreen> {
     });
 
     try {
+      // ==========================================================
+      // EDIT MESSAGE
+      // ==========================================================
+
+      if (editingMessage != null) {
+        final messageToEdit = editingMessage!;
+
+        final response = await ApiService.editBirthdayMessage(
+          messageToEdit.id,
+          message,
+        );
+
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          throw Exception(
+            'Unable to edit birthday wish (${response.statusCode})',
+          );
+        }
+
+        wishController.clear();
+
+        editingMessage = null;
+
+        await _loadMessages(student.studentId);
+
+        if (!mounted) return;
+
+        setState(() {
+          isSending = false;
+        });
+
+        _scrollToBottom();
+        return;
+      }
+
+      // ==========================================================
+      // REPLY MESSAGE
+      // ==========================================================
+
+      if (replyingTo != null) {
+        final messageToReply = replyingTo!;
+
+        final response = await ApiService.replyToBirthdayMessage(
+          messageToReply.id,
+          message,
+        );
+
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          throw Exception('Unable to send reply (${response.statusCode})');
+        }
+
+        wishController.clear();
+
+        replyingTo = null;
+
+        await _loadMessages(student.studentId);
+
+        if (!mounted) return;
+
+        setState(() {
+          isSending = false;
+        });
+
+        _scrollToBottom();
+        return;
+      }
+
+      // ==========================================================
+      // NORMAL NEW MESSAGE
+      // ==========================================================
+
       final response = await ApiService.sendBirthdayMessage(
         student.studentId,
         message,
@@ -269,7 +344,6 @@ class _BirthdayWishesScreenState extends State<BirthdayWishesScreen> {
 
       wishController.clear();
 
-      // Refresh chat from backend
       await _loadMessages(student.studentId);
 
       if (!mounted) return;
@@ -290,6 +364,194 @@ class _BirthdayWishesScreenState extends State<BirthdayWishesScreen> {
         SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
       );
     }
+  }
+
+  Future<void> _deleteMessage(BirthdayChatMessage wish) async {
+    if (wish.deleted || wish.senderId != loggedInUserId) {
+      return;
+    }
+
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Delete message?'),
+          content: const Text('This birthday wish will be deleted.'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context, false);
+              },
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context, true);
+              },
+              child: const Text('Delete', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldDelete != true) {
+      return;
+    }
+
+    try {
+      final response = await ApiService.deleteBirthdayMessage(wish.id);
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception('Unable to delete message (${response.statusCode})');
+      }
+
+      final student = birthdayData;
+
+      if (student != null) {
+        await _loadMessages(student.studentId);
+      }
+
+      if (!mounted) return;
+
+      setState(() {});
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      );
+    }
+  }
+
+  void _showMessageActions(BirthdayChatMessage wish) {
+    final isMine = wish.senderId == loggedInUserId;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 45,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+
+                const SizedBox(height: 18),
+
+                // REPLY
+                ListTile(
+                  leading: const CircleAvatar(child: Icon(Icons.reply)),
+                  title: const Text('Reply'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _startReply(wish);
+                  },
+                ),
+
+                // REACTION
+                ListTile(
+                  leading: const CircleAvatar(
+                    child: Icon(Icons.emoji_emotions_outlined),
+                  ),
+                  title: const Text('React'),
+                  onTap: () {
+                    Navigator.pop(context);
+
+                    Future.delayed(const Duration(milliseconds: 200), () {
+                      if (mounted) {
+                        _showReactionPicker(wish);
+                      }
+                    });
+                  },
+                ),
+
+                // EDIT
+                if (isMine && !wish.deleted)
+                  ListTile(
+                    leading: const CircleAvatar(child: Icon(Icons.edit)),
+                    title: const Text('Edit'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _startEdit(wish);
+                    },
+                  ),
+
+                // DELETE
+                if (isMine && !wish.deleted)
+                  ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: Colors.red.shade50,
+                      child: const Icon(
+                        Icons.delete_outline,
+                        color: Colors.red,
+                      ),
+                    ),
+                    title: const Text(
+                      'Delete',
+                      style: TextStyle(color: Colors.red),
+                    ),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _deleteMessage(wish);
+                    },
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _startEdit(BirthdayChatMessage wish) async {
+    if (wish.deleted) return;
+
+    setState(() {
+      editingMessage = wish;
+      replyingTo = null;
+      wishController.text = wish.message;
+    });
+
+    wishFocusNode.requestFocus();
+
+    await Future.delayed(const Duration(milliseconds: 100));
+    _scrollToBottom();
+  }
+
+  void _startReply(BirthdayChatMessage wish) {
+    if (wish.deleted) return;
+
+    setState(() {
+      replyingTo = wish;
+      editingMessage = null;
+    });
+
+    wishFocusNode.requestFocus();
+
+    Future.delayed(const Duration(milliseconds: 100), () {
+      _scrollToBottom();
+    });
+  }
+
+  void _cancelMessageAction() {
+    setState(() {
+      replyingTo = null;
+      editingMessage = null;
+      wishController.clear();
+    });
   }
 
   Future<void> _toggleReaction(
@@ -350,16 +612,22 @@ class _BirthdayWishesScreenState extends State<BirthdayWishesScreen> {
   // SCROLL TO LATEST MESSAGE
   // ============================================================
 
-  void _scrollToBottom() {
+  void _scrollToBottom({bool animated = true}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+      if (!mounted || !scrollController.hasClients) {
+        return;
+      }
 
-      if (scrollController.hasClients) {
+      final maxScroll = scrollController.position.maxScrollExtent;
+
+      if (animated) {
         scrollController.animateTo(
-          scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 400),
+          maxScroll,
+          duration: const Duration(milliseconds: 300),
           curve: Curves.easeOut,
         );
+      } else {
+        scrollController.jumpTo(maxScroll);
       }
     });
   }
@@ -657,6 +925,7 @@ class _BirthdayWishesScreenState extends State<BirthdayWishesScreen> {
                 Expanded(
                   child: TextField(
                     controller: wishController,
+                    focusNode: wishFocusNode,
 
                     enabled: !isSending,
 
@@ -821,67 +1090,260 @@ class _BirthdayWishesScreenState extends State<BirthdayWishesScreen> {
   // ============================================================
 
   Widget _buildMessageBubble(BirthdayChatMessage wish) {
-    final isMine = wish.senderId == loggedInUserId;
+    final isMine = loggedInUserId != null && wish.senderId == loggedInUserId;
 
-    return GestureDetector(
-      onLongPress: () => _showReactionPicker(wish),
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: isMine ? Colors.blue.shade100 : Colors.grey.shade200,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          crossAxisAlignment: isMine
-              ? CrossAxisAlignment.end
-              : CrossAxisAlignment.start,
-          children: [
-            if (!isMine)
+    // ==========================================================
+    // DELETED MESSAGE
+    // ==========================================================
+
+    if (wish.deleted) {
+      return Align(
+        alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade200,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.block, size: 16, color: Colors.grey.shade600),
+              const SizedBox(width: 6),
               Text(
-                wish.senderName,
-                style: const TextStyle(fontWeight: FontWeight.bold),
+                'This message was deleted',
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontStyle: FontStyle.italic,
+                  fontSize: 13,
+                ),
               ),
+            ],
+          ),
+        ),
+      );
+    }
 
-            const SizedBox(height: 4),
-
-            Text(wish.message),
-
-            const SizedBox(height: 4),
-
-            Text(
-              _formatTime(wish.createdAt),
-              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+    return Align(
+      alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
+      child: GestureDetector(
+        onLongPress: () => _showMessageActions(wish),
+        child: Container(
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.78,
+          ),
+          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          padding: const EdgeInsets.fromLTRB(12, 9, 12, 7),
+          decoration: BoxDecoration(
+            color: isMine ? const Color(0xffDCF8C6) : Colors.white,
+            borderRadius: BorderRadius.only(
+              topLeft: const Radius.circular(16),
+              topRight: const Radius.circular(16),
+              bottomLeft: Radius.circular(isMine ? 16 : 4),
+              bottomRight: Radius.circular(isMine ? 4 : 16),
             ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 4,
+                offset: const Offset(0, 1),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ==================================================
+              // SENDER NAME
+              // ==================================================
 
-            // reactions ikkada
-            if (wish.reactions.isNotEmpty)
-              Wrap(
-                spacing: 4,
-                children: wish.reactions.map((reaction) {
-                  return GestureDetector(
-                    onTap: () => _toggleReaction(wish, reaction.reaction),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: reaction.reactedByCurrentUser
-                            ? Colors.blue.shade100
-                            : Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        '${reaction.reaction} ${reaction.count}',
-                        style: const TextStyle(fontSize: 12),
+              if (!isMine)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    wish.senderName,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xff1565C0),
+                    ),
+                  ),
+                ),
+
+              // ==================================================
+              // REPLIED MESSAGE
+              // ==================================================
+              if (wish.replyToMessageId != null)
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 7),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isMine
+                        ? Colors.white.withOpacity(0.65)
+                        : Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(8),
+                    border: const Border(
+                      left: BorderSide(color: Color(0xff1565C0), width: 3),
+                    ),
+                  ),
+                  child: Text(
+                    wish.replyToMessage?.isNotEmpty == true
+                        ? wish.replyToMessage!
+                        : 'Replied message',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                  ),
+                ),
+
+              // ==================================================
+              // MESSAGE + TIME
+              // ==================================================
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Flexible(
+                    child: Text(
+                      wish.message,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        color: Color(0xff172033),
+                        height: 1.3,
                       ),
                     ),
-                  );
-                }).toList(),
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  Text(
+                    _formatTime(wish.createdAt),
+                    style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                  ),
+
+                  if (wish.edited)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4),
+                      child: Text(
+                        'edited',
+                        style: TextStyle(
+                          fontSize: 9,
+                          color: Colors.grey.shade500,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
+
+                  if (isMine)
+                    const Padding(
+                      padding: EdgeInsets.only(left: 3),
+                      child: Icon(
+                        Icons.done_all,
+                        size: 15,
+                        color: Color(0xff2196F3),
+                      ),
+                    ),
+                ],
               ),
-          ],
+
+              // ==================================================
+              // REACTIONS
+              // ==================================================
+              if (wish.reactions.isNotEmpty) ...[
+                const SizedBox(height: 5),
+
+                Wrap(
+                  spacing: 4,
+                  runSpacing: 3,
+                  children: wish.reactions.map((reaction) {
+                    return GestureDetector(
+                      onTap: () => _toggleReaction(wish, reaction.reaction),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: reaction.reactedByCurrentUser
+                              ? const Color(0xffE3F2FD)
+                              : Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: reaction.reactedByCurrentUser
+                                ? const Color(0xff90CAF9)
+                                : Colors.grey.shade300,
+                          ),
+                        ),
+                        child: Text(
+                          '${reaction.reaction} ${reaction.count}',
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ],
+          ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildInputActionPreview() {
+    final bool isEditing = editingMessage != null;
+    final message = isEditing ? editingMessage! : replyingTo!;
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(left: 4, right: 4, bottom: 8),
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: const Color(0xffF1F3F5),
+        borderRadius: BorderRadius.circular(12),
+        border: const Border(
+          left: BorderSide(color: Color(0xff1565C0), width: 4),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isEditing
+                      ? 'Editing message'
+                      : 'Replying to ${message.senderName}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xff1565C0),
+                  ),
+                ),
+
+                const SizedBox(height: 3),
+
+                Text(
+                  message.message,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                ),
+              ],
+            ),
+          ),
+
+          IconButton(
+            onPressed: _cancelMessageAction,
+            icon: const Icon(Icons.close, size: 20),
+          ),
+        ],
       ),
     );
   }
