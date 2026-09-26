@@ -2,201 +2,97 @@
 import 'mcq_question.dart';
 
 class McqTest {
-  final String id;
-  final String title;
+  final int id;
+  final int? classId;
+  final int? sectionId;
+  final String? className;
+  final String? sectionName;
   final String subject;
-  final String chapter;
-  final String testDate;
+  final String date;
   final String startTime;
-  final int durationMinutes;
+  final int duration;
+  final int numberOfQuestions;
+  final String status;
   final List<McqQuestion> questions;
 
   const McqTest({
     required this.id,
-    required this.title,
+    this.classId,
+    this.sectionId,
+    this.className,
+    this.sectionName,
     required this.subject,
-    required this.chapter,
-    required this.testDate,
+    required this.date,
     required this.startTime,
-    required this.durationMinutes,
+    required this.duration,
+    required this.numberOfQuestions,
+    required this.status,
     required this.questions,
   });
 
   int get totalQuestions => questions.length;
 
-  // ============================================================
-  // DUMMY TEST
-  // Later this will come from your backend API.
-  // ============================================================
-
-  factory McqTest.dummy() {
-    return const McqTest(
-      id: "TEST001",
-      title: "Daily Mathematics Test",
-      subject: "Mathematics",
-      chapter: "Addition & Subtraction",
-      testDate: "09 Aug 2026",
-      startTime: "7:00 PM",
-      durationMinutes: 15,
-      questions: [
-        McqQuestion(
-          id: "Q001",
-          question: "What is 25 + 15?",
-          options: [
-            "30",
-            "35",
-            "40",
-            "45",
-          ],
-        ),
-
-        McqQuestion(
-          id: "Q002",
-          question: "What is 50 - 20?",
-          options: [
-            "20",
-            "25",
-            "30",
-            "35",
-          ],
-        ),
-
-        McqQuestion(
-          id: "Q003",
-          question: "What is 8 + 7?",
-          options: [
-            "13",
-            "14",
-            "15",
-            "16",
-          ],
-        ),
-
-        McqQuestion(
-          id: "Q004",
-          question: "What is 100 - 45?",
-          options: [
-            "45",
-            "50",
-            "55",
-            "65",
-          ],
-        ),
-
-        McqQuestion(
-          id: "Q005",
-          question: "Which number is greater?",
-          options: [
-            "18",
-            "25",
-            "12",
-            "20",
-          ],
-        ),
-
-        McqQuestion(
-          id: "Q006",
-          question: "What is 12 + 18?",
-          options: [
-            "20",
-            "25",
-            "30",
-            "35",
-          ],
-        ),
-
-        McqQuestion(
-          id: "Q007",
-          question: "What is 40 - 15?",
-          options: [
-            "15",
-            "20",
-            "25",
-            "30",
-          ],
-        ),
-
-        McqQuestion(
-          id: "Q008",
-          question: "What is 6 + 9?",
-          options: [
-            "13",
-            "14",
-            "15",
-            "16",
-          ],
-        ),
-
-        McqQuestion(
-          id: "Q009",
-          question: "What is 75 - 25?",
-          options: [
-            "40",
-            "45",
-            "50",
-            "55",
-          ],
-        ),
-
-        McqQuestion(
-          id: "Q010",
-          question: "What is 10 + 20?",
-          options: [
-            "20",
-            "25",
-            "30",
-            "40",
-          ],
-        ),
-      ],
-    );
-  }
-
-  // ============================================================
-  // FROM JSON
-  // This will be useful when connecting Spring Boot API.
-  // ============================================================
-
   factory McqTest.fromJson(Map<String, dynamic> json) {
     return McqTest(
-      id: json["id"]?.toString() ?? "",
-      title: json["title"]?.toString() ?? "",
-      subject: json["subject"]?.toString() ?? "",
-      chapter: json["chapter"]?.toString() ?? "",
-      testDate: json["testDate"]?.toString() ?? "",
-      startTime: json["startTime"]?.toString() ?? "",
-      durationMinutes:
-          json["durationMinutes"] ?? 15,
+      id: int.tryParse(json['id']?.toString() ?? '') ?? 0,
+
+      classId: json['classId'] == null
+          ? null
+          : int.tryParse(json['classId'].toString()),
+
+      sectionId: json['sectionId'] == null
+          ? null
+          : int.tryParse(json['sectionId'].toString()),
+
+      className: json['className']?.toString(),
+
+      sectionName: json['sectionName']?.toString(),
+
+      subject: json['subject']?.toString() ?? '',
+
+      date: json['date']?.toString() ?? '',
+
+      startTime: json['startTime']?.toString() ?? '',
+
+      duration: int.tryParse(
+            json['duration']?.toString() ?? '',
+          ) ??
+          0,
+
+      numberOfQuestions: int.tryParse(
+            json['numberOfQuestions']?.toString() ?? '',
+          ) ??
+          0,
+
+      status: json['status']?.toString() ?? '',
 
       questions:
-          (json["questions"] as List<dynamic>? ?? [])
+          (json['questions'] as List<dynamic>? ?? [])
+              .whereType<Map<String, dynamic>>()
               .map(
-                (question) => McqQuestion.fromJson(
-                  question as Map<String, dynamic>,
-                ),
+                (question) => McqQuestion.fromJson(question),
               )
               .toList(),
     );
   }
 
-  // ============================================================
-  // TO JSON
-  // Useful when sending data to backend.
-  // ============================================================
-
   Map<String, dynamic> toJson() {
     return {
-      "id": id,
-      "title": title,
-      "subject": subject,
-      "chapter": chapter,
-      "testDate": testDate,
-      "startTime": startTime,
-      "durationMinutes": durationMinutes,
-      "questions":
-          questions.map((question) {
-        return question.toJson();
-      }).toList(),
+      'id': id,
+      'classId': classId,
+      'sectionId': sectionId,
+      'className': className,
+      'sectionName': sectionName,
+      'subject': subject,
+      'date': date,
+      'startTime': startTime,
+      'duration': duration,
+      'numberOfQuestions': numberOfQuestions,
+      'status': status,
+      'questions': questions
+          .map((question) => question.toJson())
+          .toList(),
     };
   }
 }
+

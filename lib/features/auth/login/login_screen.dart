@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:parent_app/features/auth/otp/otp_screen.dart';
 import 'package:google_fonts/google_fonts.dart';
+
+import 'package:parent_app/features/home/parent_home_screen.dart';
+import 'package:parent_app/services/api_service.dart';
+import 'package:parent_app/storage/local_storage.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -10,44 +13,139 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final TextEditingController mobileController = TextEditingController();
+  final TextEditingController usernameController = TextEditingController();
+  final TextEditingController passwordController = TextEditingController();
 
-  void sendOtp() {
+  bool obscurePassword = true;
+  bool isLoading = false;
+
+  // ============================================================
+  // LOGIN
+  // ============================================================
+
+  Future<void> login() async {
     FocusScope.of(context).unfocus();
 
-    if (mobileController.text.length != 10) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text("Please enter a valid 10-digit mobile number"),
-          behavior: SnackBarBehavior.floating,
-          margin: const EdgeInsets.all(16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-      );
+    final username = usernameController.text.trim();
+    final password = passwordController.text;
+
+    if (username.isEmpty) {
+      _showMessage("Please enter your username");
       return;
     }
 
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => OtpScreen(mobileNumber: mobileController.text),
+    if (password.isEmpty) {
+      _showMessage("Please enter your password");
+      return;
+    }
+
+    setState(() {
+      isLoading = true;
+    });
+
+    try {
+      final response = await ApiService.post(
+        '/auth/login',
+        body: {'username': username, 'password': password},
+      );
+
+      if (!mounted) return;
+
+      final data = ApiService.decodeResponse(response);
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        if (data is Map<String, dynamic>) {
+          final token = data['token']?.toString();
+          final userId = data['userId'];
+          final responseUsername = data['username']?.toString() ?? username;
+          final role = data['role']?.toString();
+
+          if (token == null ||
+              token.isEmpty ||
+              userId == null ||
+              role == null ||
+              role.isEmpty) {
+            _showMessage("Invalid login response from server");
+
+            setState(() {
+              isLoading = false;
+            });
+
+            return;
+          }
+
+          await LocalStorage.saveLoginData(
+            token: token,
+            userId: userId is int ? userId : int.parse(userId.toString()),
+            username: responseUsername,
+            role: role,
+          );
+
+          debugPrint("========== LOGIN DEBUG ==========");
+          debugPrint("USERNAME : $responseUsername");
+          debugPrint("USER ID  : $userId");
+          debugPrint("ROLE     : $role");
+          debugPrint("TOKEN    : $token");
+          debugPrint("=================================");
+
+          if (!mounted) return;
+
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (_) => const ParentHomeScreen()),
+            (route) => false,
+          );
+
+          return;
+        }
+
+        _showMessage("Invalid response from server");
+      } else {
+        String message = "Invalid username or password";
+
+        if (data is Map && data['message'] != null) {
+          message = data['message'].toString();
+        }
+
+        _showMessage(message);
+      }
+    } catch (e) {
+      if (!mounted) return;
+
+      _showMessage("Unable to connect to server. Please try again.");
+    } finally {
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
+    }
+  }
+
+  // ============================================================
+  // SHOW MESSAGE
+  // ============================================================
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
 
   @override
   void dispose() {
-    mobileController.dispose();
+    usernameController.dispose();
+    passwordController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // ============================================================
-    // CHECK WHETHER KEYBOARD IS OPEN
-    // ============================================================
     final keyboardOpen = MediaQuery.of(context).viewInsets.bottom > 0;
 
     return Scaffold(
@@ -60,9 +158,7 @@ class _LoginScreenState extends State<LoginScreen> {
             // ============================================================
             // HEADER
             // ============================================================
-            //
-            // Header SHRINKS when keyboard opens.
-            //
+
             AnimatedContainer(
               duration: const Duration(milliseconds: 220),
               curve: Curves.easeOut,
@@ -93,6 +189,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   // ========================================================
                   // SCHOOL ICON
                   // ========================================================
+
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 220),
                     curve: Curves.easeOut,
@@ -134,9 +231,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     "Smart School",
                     style: GoogleFonts.poppins(
                       color: Colors.white,
-
                       fontSize: keyboardOpen ? 24 : 32,
-
                       fontWeight: FontWeight.bold,
                       letterSpacing: keyboardOpen ? 0.5 : 1,
                     ),
@@ -149,11 +244,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     "Make Lives Brighter",
                     style: GoogleFonts.poppins(
                       color: Colors.yellow.shade200,
-
                       fontSize: keyboardOpen ? 12 : 18,
-
                       fontWeight: FontWeight.w600,
-
                       letterSpacing: keyboardOpen ? 2.5 : 5,
                     ),
                   ),
@@ -167,7 +259,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     "Learning Today, Leading Tomorrow",
                     style: GoogleFonts.poppins(
                       color: Colors.white70,
-
                       fontSize: keyboardOpen ? 10 : 15,
                     ),
                   ),
@@ -189,10 +280,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+
                   children: [
                     // ======================================================
                     // WELCOME
                     // ======================================================
+
                     Text(
                       "Welcome Back 👋",
                       style: TextStyle(
@@ -205,7 +298,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     SizedBox(height: keyboardOpen ? 3 : 8),
 
                     Text(
-                      "Login with your registered mobile number.",
+                      "Login with your username and password.",
                       style: TextStyle(
                         color: Colors.grey.shade600,
                         fontSize: keyboardOpen ? 13 : 16,
@@ -215,10 +308,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     SizedBox(height: keyboardOpen ? 10 : 24),
 
                     // ======================================================
-                    // MOBILE NUMBER LABEL
+                    // USERNAME
                     // ======================================================
                     const Text(
-                      "Mobile Number",
+                      "Username",
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
@@ -228,13 +321,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
                     SizedBox(height: keyboardOpen ? 6 : 10),
 
-                    // ======================================================
-                    // MOBILE NUMBER FIELD
-                    // ======================================================
                     Container(
                       decoration: BoxDecoration(
                         color: Colors.white,
-
                         borderRadius: BorderRadius.circular(18),
 
                         boxShadow: [
@@ -247,95 +336,140 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
 
                       child: TextField(
-                        controller: mobileController,
+                        controller: usernameController,
 
-                        keyboardType: TextInputType.phone,
+                        keyboardType: TextInputType.text,
 
-                        maxLength: 10,
+                        textInputAction: TextInputAction.next,
 
                         style: const TextStyle(
                           fontSize: 17,
                           fontWeight: FontWeight.w600,
-                          letterSpacing: 1,
                           color: Color(0xff172033),
                         ),
 
                         decoration: InputDecoration(
-                          counterText: "",
-
-                          hintText: "Enter mobile number",
+                          hintText: "Enter username",
 
                           hintStyle: TextStyle(
                             color: Colors.grey.shade400,
                             fontSize: 15,
                             fontWeight: FontWeight.normal,
-                            letterSpacing: 0,
                           ),
 
                           filled: true,
                           fillColor: Colors.white,
 
-                          // ==================================================
-                          // INDIA +91
-                          // ==================================================
-                          prefixIcon: Padding(
-                            padding: const EdgeInsets.only(
-                              left: 12,
-                              right: 8,
-                              top: 8,
-                              bottom: 8,
-                            ),
+                          prefixIcon: const Icon(
+                            Icons.person_outline_rounded,
+                            color: Color(0xff1565C0),
+                          ),
 
-                            child: Container(
-                              width: 70,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 18,
+                          ),
 
-                              decoration: BoxDecoration(
-                                color: const Color(0xffEAF2FF),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(18),
 
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-
-                                children: [
-                                  const Text(
-                                    "🇮🇳",
-                                    style: TextStyle(fontSize: 18),
-                                  ),
-
-                                  const SizedBox(width: 5),
-
-                                  Text(
-                                    "+91",
-                                    style: GoogleFonts.poppins(
-                                      color: const Color(0xff1565C0),
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                            borderSide: BorderSide(
+                              color: Colors.grey.shade200,
+                              width: 1.2,
                             ),
                           ),
 
-                          // ==================================================
-                          // PHONE ICON
-                          // ==================================================
-                          suffixIcon: Container(
-                            margin: const EdgeInsets.all(10),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(18),
 
-                            height: 40,
-                            width: 40,
-
-                            decoration: BoxDecoration(
-                              color: const Color(0xffF1F6FF),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-
-                            child: const Icon(
-                              Icons.phone_android_rounded,
+                            borderSide: const BorderSide(
                               color: Color(0xff1565C0),
-                              size: 21,
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    SizedBox(height: keyboardOpen ? 10 : 16),
+
+                    // ======================================================
+                    // PASSWORD
+                    // ======================================================
+                    const Text(
+                      "Password",
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xff172033),
+                      ),
+                    ),
+
+                    SizedBox(height: keyboardOpen ? 6 : 10),
+
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(18),
+
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.04),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+
+                      child: TextField(
+                        controller: passwordController,
+
+                        obscureText: obscurePassword,
+
+                        textInputAction: TextInputAction.done,
+
+                        onSubmitted: (_) {
+                          if (!isLoading) {
+                            login();
+                          }
+                        },
+
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xff172033),
+                        ),
+
+                        decoration: InputDecoration(
+                          hintText: "Enter password",
+
+                          hintStyle: TextStyle(
+                            color: Colors.grey.shade400,
+                            fontSize: 15,
+                            fontWeight: FontWeight.normal,
+                          ),
+
+                          filled: true,
+                          fillColor: Colors.white,
+
+                          prefixIcon: const Icon(
+                            Icons.lock_outline_rounded,
+                            color: Color(0xff1565C0),
+                          ),
+
+                          suffixIcon: IconButton(
+                            onPressed: () {
+                              setState(() {
+                                obscurePassword = !obscurePassword;
+                              });
+                            },
+
+                            icon: Icon(
+                              obscurePassword
+                                  ? Icons.visibility_off_outlined
+                                  : Icons.visibility_outlined,
+
+                              color: Colors.grey.shade600,
                             ),
                           ),
 
@@ -371,17 +505,20 @@ class _LoginScreenState extends State<LoginScreen> {
                     const Spacer(),
 
                     // ======================================================
-                    // SEND OTP
+                    // LOGIN BUTTON
                     // ======================================================
                     SizedBox(
                       width: double.infinity,
                       height: 58,
 
                       child: ElevatedButton(
-                        onPressed: sendOtp,
+                        onPressed: isLoading ? null : login,
 
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xff1565C0),
+
+                          disabledBackgroundColor: const Color(0xff90CAF9),
+
                           foregroundColor: Colors.white,
 
                           elevation: 5,
@@ -393,23 +530,32 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
 
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                        child: isLoading
+                            ? const SizedBox(
+                                height: 24,
+                                width: 24,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.5,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
 
-                          children: [
-                            const Icon(Icons.send_rounded, size: 21),
+                                children: [
+                                  const Icon(Icons.login_rounded, size: 21),
 
-                            const SizedBox(width: 10),
+                                  const SizedBox(width: 10),
 
-                            Text(
-                              "Send OTP",
-                              style: GoogleFonts.poppins(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w600,
+                                  Text(
+                                    "Login",
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ),
-                          ],
-                        ),
                       ),
                     ),
 
@@ -443,7 +589,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                           Expanded(
                             child: Text(
-                              "We will send a secure OTP to verify your mobile number.",
+                              "Your login details are securely verified by the school server.",
 
                               style: TextStyle(
                                 fontSize: keyboardOpen ? 10 : 12,
