@@ -1,39 +1,59 @@
-
 import 'package:flutter/material.dart';
 
 import '../../models/student_response.dart';
 import '../../services/api_service.dart';
+import '../../services/exam_service.dart';
 
 class ResultsScreen extends StatefulWidget {
   final StudentResponse student;
 
-  const ResultsScreen({
-    super.key,
-    required this.student,
-  });
+  const ResultsScreen({super.key, required this.student});
 
   @override
   State<ResultsScreen> createState() => _ResultsScreenState();
 }
 
 class _ResultsScreenState extends State<ResultsScreen> {
+  // ============================================================
+  // THEME
+  // ============================================================
+
+  static const Color primary = Color(0xFF3155D9);
+  static const Color primaryDark = Color(0xFF2343B8);
+  static const Color background = Color(0xFFF6F8FC);
+  static const Color textDark = Color(0xFF172033);
+  static const Color textMuted = Color(0xFF697386);
+  static const Color border = Color(0xFFE5E9F0);
+
+  // ============================================================
+  // STATE
+  // ============================================================
+
   bool isLoading = true;
   String? errorMessage;
 
+  List<Map<String, dynamic>> allResults = [];
   List<Map<String, dynamic>> results = [];
 
-  String examName = "Exam Results";
+  List<String> availableExams = [];
+  String? selectedExam;
+
+  List<Map<String, dynamic>> gradeRules = [];
 
   double totalMarks = 0;
   double totalMaxMarks = 0;
   double percentage = 0;
 
-  String overallGrade = "-";
+  String overallGrade = '-';
 
   int? classRank;
   int? sectionRank;
 
   String? remarks;
+
+  // ============================================================
+  // INIT
+  // ============================================================
 
   @override
   void initState() {
@@ -53,71 +73,70 @@ class _ResultsScreenState extends State<ResultsScreen> {
 
     try {
       // ----------------------------------------------------------
-      // 1. Get student's published results
+      // 1. STUDENT RESULTS
       // ----------------------------------------------------------
 
-      final resultResponse =
-          await ApiService.getStudentExamResults(
+      final resultResponse = await ExamService.getStudentExamResults(
         widget.student.id,
       );
 
-      debugPrint("========== RESULTS API ==========");
-      debugPrint("STATUS: ${resultResponse.statusCode}");
-      debugPrint("BODY: ${resultResponse.body}");
-      debugPrint("=================================");
+      debugPrint('========== RESULTS API ==========');
+      debugPrint('STATUS: ${resultResponse.statusCode}');
+      debugPrint('BODY: ${resultResponse.body}');
+      debugPrint('=================================');
 
       if (resultResponse.statusCode != 200) {
+        if (!mounted) return;
+
         setState(() {
           errorMessage =
-              "Unable to load exam results. "
-              "(${resultResponse.statusCode})";
+              'Unable to load exam results. '
+              '(${resultResponse.statusCode})';
           isLoading = false;
         });
+
         return;
       }
 
-      final resultData =
-          ApiService.decodeResponse(resultResponse);
+      final resultData = ApiService.decodeResponse(resultResponse);
 
       if (resultData is! List) {
+        if (!mounted) return;
+
         setState(() {
+          allResults = [];
           results = [];
+          availableExams = [];
           isLoading = false;
         });
+
         return;
       }
 
       // ----------------------------------------------------------
-      // 2. Get exam schedules using student's section
+      // 2. EXAM SCHEDULES
       // ----------------------------------------------------------
 
       Map<int, Map<String, dynamic>> scheduleMap = {};
 
       if (widget.student.sectionId != null) {
-        final scheduleResponse =
-            await ApiService.getExamSchedules(
+        final scheduleResponse = await ExamService.getExamSchedules(
           sectionId: widget.student.sectionId,
         );
 
-        debugPrint("========== SCHEDULE API ==========");
-        debugPrint(
-          "STATUS: ${scheduleResponse.statusCode}",
-        );
-        debugPrint(
-          "BODY: ${scheduleResponse.body}",
-        );
-        debugPrint("==================================");
+        debugPrint('========== SCHEDULE API ==========');
+        debugPrint('STATUS: ${scheduleResponse.statusCode}');
+        debugPrint('BODY: ${scheduleResponse.body}');
+        debugPrint('==================================');
 
         if (scheduleResponse.statusCode == 200) {
-          final scheduleData =
-              ApiService.decodeResponse(scheduleResponse);
+          final scheduleData = ApiService.decodeResponse(scheduleResponse);
 
           if (scheduleData is List) {
             for (final item in scheduleData) {
               if (item is! Map) continue;
 
-              final schedule =
-                  Map<String, dynamic>.from(item);
+              final schedule = Map<String, dynamic>.from(item);
 
               final id = _toInt(schedule['id']);
 
@@ -130,7 +149,28 @@ class _ResultsScreenState extends State<ResultsScreen> {
       }
 
       // ----------------------------------------------------------
-      // 3. Combine result + schedule
+      // 3. GRADE RULES
+      // ----------------------------------------------------------
+
+      try {
+        final gradeResponse = await ExamService.getGradeRules();
+
+        if (gradeResponse.statusCode == 200) {
+          final gradeData = ApiService.decodeResponse(gradeResponse);
+
+          if (gradeData is List) {
+            gradeRules = gradeData
+                .whereType<Map>()
+                .map((item) => Map<String, dynamic>.from(item))
+                .toList();
+          }
+        }
+      } catch (e) {
+        debugPrint('GRADE RULES ERROR: $e');
+      }
+
+      // ----------------------------------------------------------
+      // 4. COMBINE RESULT + SCHEDULE
       // ----------------------------------------------------------
 
       final List<Map<String, dynamic>> loadedResults = [];
@@ -138,165 +178,181 @@ class _ResultsScreenState extends State<ResultsScreen> {
       for (final item in resultData) {
         if (item is! Map) continue;
 
-        final result =
-            Map<String, dynamic>.from(item);
+        final result = Map<String, dynamic>.from(item);
 
-        final scheduleId =
-            _toInt(result['examScheduleId']);
+        final scheduleId = _toInt(result['examScheduleId']);
 
-        final schedule =
-            scheduleId != null
-                ? scheduleMap[scheduleId]
-                : null;
+        final schedule = scheduleId != null ? scheduleMap[scheduleId] : null;
 
-        final marks =
-            _toDouble(result['marksObtained']);
+        final marks = _toDouble(result['marksObtained']);
 
-        final maxMarks =
-            _toDouble(result['maxMarks']);
+        final maxMarks = _toDouble(result['maxMarks']);
 
-        final resultPercentage =
-            _toDouble(result['percentage']);
+        final resultPercentage = _toDouble(result['percentage']);
+
+        final examinationName =
+            schedule?['examinationName'] ??
+            result['examinationName'] ??
+            'Examination';
 
         loadedResults.add({
           'id': result['id'],
           'examScheduleId': scheduleId,
 
-          // From schedule
           'subjectName':
-              schedule?['subjectName'] ??
-              'Subject',
+              schedule?['subjectName'] ?? result['subjectName'] ?? 'Subject',
 
-          'subjectCode':
-              schedule?['subjectCode'],
+          'subjectCode': schedule?['subjectCode'] ?? result['subjectCode'],
 
-          'examinationName':
-              schedule?['examinationName'] ??
-              'Examination',
+          'examinationName': examinationName.toString(),
 
-          'examDate':
-              schedule?['examDate'],
+          'examDate': schedule?['examDate'] ?? result['examDate'],
 
-          // From result
           'marksObtained': marks,
           'maxMarks': maxMarks,
           'percentage': resultPercentage,
 
-          'grade':
-              result['grade']?.toString() ?? '-',
+          'grade': result['grade']?.toString() ?? '-',
 
-          'classRank':
-              _toInt(result['classRank']),
+          'classRank': _toInt(result['classRank']),
 
-          'sectionRank':
-              _toInt(result['sectionRank']),
+          'sectionRank': _toInt(result['sectionRank']),
 
-          'remarks':
-              result['remarks']?.toString(),
+          'remarks': result['remarks']?.toString(),
 
-          'status':
-              result['status']?.toString(),
+          'status': result['status']?.toString(),
 
-          'isPublished':
-              result['isPublished'] == true,
+          'isPublished': result['isPublished'] == true,
         });
       }
 
       // ----------------------------------------------------------
-      // 4. Calculate summary
+      // 5. FIND AVAILABLE EXAMS
       // ----------------------------------------------------------
 
-      double calculatedTotal = 0;
-      double calculatedMax = 0;
+      final examSet = <String>{};
 
       for (final result in loadedResults) {
-        calculatedTotal +=
-            (result['marksObtained'] as double?) ?? 0;
+        final name = result['examinationName']?.toString().trim();
 
-        calculatedMax +=
-            (result['maxMarks'] as double?) ?? 0;
-      }
-
-      double calculatedPercentage = 0;
-
-      if (calculatedMax > 0) {
-        calculatedPercentage =
-            (calculatedTotal / calculatedMax) * 100;
-      }
-
-      // ----------------------------------------------------------
-      // 5. Get overall information
-      // ----------------------------------------------------------
-
-      String calculatedExamName = "Exam Results";
-
-      if (loadedResults.isNotEmpty) {
-        calculatedExamName =
-            loadedResults.first['examinationName']
-                    ?.toString() ??
-                "Exam Results";
-      }
-
-      String calculatedGrade = "-";
-
-      if (loadedResults.isNotEmpty) {
-        calculatedGrade =
-            _calculateOverallGrade(
-          calculatedPercentage,
-        );
-      }
-
-      int? calculatedClassRank;
-      int? calculatedSectionRank;
-      String? calculatedRemarks;
-
-      if (loadedResults.isNotEmpty) {
-        calculatedClassRank =
-            loadedResults.first['classRank'];
-
-        calculatedSectionRank =
-            loadedResults.first['sectionRank'];
-
-        // First non-empty remark
-        for (final result in loadedResults) {
-          final r = result['remarks']?.toString();
-
-          if (r != null && r.trim().isNotEmpty) {
-            calculatedRemarks = r;
-            break;
-          }
+        if (name != null && name.isNotEmpty) {
+          examSet.add(name);
         }
       }
 
+      final exams = examSet.toList();
+
       if (!mounted) return;
 
       setState(() {
-        results = loadedResults;
+        allResults = loadedResults;
+        availableExams = exams;
 
-        totalMarks = calculatedTotal;
-        totalMaxMarks = calculatedMax;
-        percentage = calculatedPercentage;
-
-        examName = calculatedExamName;
-        overallGrade = calculatedGrade;
-
-        classRank = calculatedClassRank;
-        sectionRank = calculatedSectionRank;
-
-        remarks = calculatedRemarks;
+        selectedExam = exams.isNotEmpty ? exams.first : null;
 
         isLoading = false;
       });
+
+      // ----------------------------------------------------------
+      // 6. APPLY SELECTED EXAM
+      // ----------------------------------------------------------
+
+      _applySelectedExam();
     } catch (e) {
-      debugPrint("RESULTS API ERROR: $e");
+      debugPrint('RESULTS API ERROR: $e');
 
       if (!mounted) return;
 
       setState(() {
-        errorMessage = "Failed to load exam results.";
+        errorMessage = 'Failed to load exam results.';
         isLoading = false;
       });
     }
+  }
+
+  // ============================================================
+  // APPLY EXAM
+  // ============================================================
+
+  void _applySelectedExam() {
+    final exam = selectedExam;
+
+    if (exam == null) {
+      setState(() {
+        results = [];
+        _resetSummary();
+      });
+      return;
+    }
+
+    final filtered = allResults.where((result) {
+      return result['examinationName']?.toString().trim() == exam.trim();
+    }).toList();
+
+    double calculatedTotal = 0;
+    double calculatedMax = 0;
+
+    for (final result in filtered) {
+      calculatedTotal += (result['marksObtained'] as double?) ?? 0;
+
+      calculatedMax += (result['maxMarks'] as double?) ?? 0;
+    }
+
+    double calculatedPercentage = 0;
+
+    if (calculatedMax > 0) {
+      calculatedPercentage = (calculatedTotal / calculatedMax) * 100;
+    }
+
+    int? calculatedClassRank;
+    int? calculatedSectionRank;
+    String? calculatedRemarks;
+
+    if (filtered.isNotEmpty) {
+      calculatedClassRank = filtered.first['classRank'];
+
+      calculatedSectionRank = filtered.first['sectionRank'];
+
+      for (final result in filtered) {
+        final remark = result['remarks']?.toString();
+
+        if (remark != null && remark.trim().isNotEmpty) {
+          calculatedRemarks = remark;
+          break;
+        }
+      }
+    }
+
+    final grade = filtered.isNotEmpty
+        ? _calculateOverallGrade(calculatedPercentage)
+        : '-';
+
+    setState(() {
+      results = filtered;
+
+      totalMarks = calculatedTotal;
+      totalMaxMarks = calculatedMax;
+      percentage = calculatedPercentage;
+
+      overallGrade = grade;
+
+      classRank = calculatedClassRank;
+      sectionRank = calculatedSectionRank;
+
+      remarks = calculatedRemarks;
+    });
+  }
+
+  // ============================================================
+  // SELECT EXAM
+  // ============================================================
+
+  void _selectExam(String exam) {
+    setState(() {
+      selectedExam = exam;
+    });
+
+    _applySelectedExam();
   }
 
   // ============================================================
@@ -324,23 +380,41 @@ class _ResultsScreenState extends State<ResultsScreen> {
       return value.toDouble();
     }
 
-    return double.tryParse(
-          value.toString(),
-        ) ??
-        0;
+    return double.tryParse(value.toString()) ?? 0;
   }
 
-  String _calculateOverallGrade(
-    double percentage,
-  ) {
-    if (percentage >= 90) return "A+";
-    if (percentage >= 80) return "A";
-    if (percentage >= 70) return "B+";
-    if (percentage >= 60) return "B";
-    if (percentage >= 50) return "C";
-    if (percentage >= 40) return "D";
+  String _calculateOverallGrade(double value) {
+    if (gradeRules.isNotEmpty) {
+      for (final rule in gradeRules) {
+        final minimum = _toDouble(rule['minimumPercentage']);
 
-    return "F";
+        final maximum = _toDouble(rule['maximumPercentage']);
+
+        if (value >= minimum && value <= maximum) {
+          return rule['grade']?.toString() ?? '-';
+        }
+      }
+    }
+
+    // Fallback if grade rules are not available.
+    if (value >= 90) return 'A+';
+    if (value >= 80) return 'A';
+    if (value >= 70) return 'B+';
+    if (value >= 60) return 'B';
+    if (value >= 50) return 'C';
+    if (value >= 40) return 'D';
+
+    return 'F';
+  }
+
+  void _resetSummary() {
+    totalMarks = 0;
+    totalMaxMarks = 0;
+    percentage = 0;
+    overallGrade = '-';
+    classRank = null;
+    sectionRank = null;
+    remarks = null;
   }
 
   String _formatNumber(double value) {
@@ -351,19 +425,67 @@ class _ResultsScreenState extends State<ResultsScreen> {
     return value.toStringAsFixed(1);
   }
 
+  Color _scoreColor(double score) {
+    if (score >= 80) {
+      return const Color(0xFF16A34A);
+    }
+
+    if (score >= 60) {
+      return const Color(0xFFF59E0B);
+    }
+
+    return const Color(0xFFDC2626);
+  }
+
   Color _subjectColor(int index) {
     const colors = [
-      Colors.blue,
-      Colors.orange,
-      Colors.green,
-      Colors.purple,
-      Colors.red,
-      Colors.teal,
-      Colors.indigo,
-      Colors.pink,
+      Color(0xFF3155D9),
+      Color(0xFF7C3AED),
+      Color(0xFF0F766E),
+      Color(0xFFEA580C),
+      Color(0xFFDB2777),
+      Color(0xFF2563EB),
     ];
 
     return colors[index % colors.length];
+  }
+
+  String _performanceText() {
+    if (percentage >= 90) {
+      return 'Excellent Performance';
+    }
+
+    if (percentage >= 75) {
+      return 'Very Good Performance';
+    }
+
+    if (percentage >= 60) {
+      return 'Good Performance';
+    }
+
+    return 'Keep Practicing';
+  }
+
+  String _formatExamDate() {
+    if (results.isEmpty) return '';
+
+    final value = results.first['examDate'];
+
+    if (value == null) return '';
+
+    final raw = value.toString();
+
+    if (raw.isEmpty) return '';
+
+    try {
+      final date = DateTime.parse(raw).toLocal();
+
+      return '${date.day.toString().padLeft(2, '0')}/'
+          '${date.month.toString().padLeft(2, '0')}/'
+          '${date.year}';
+    } catch (_) {
+      return raw;
+    }
   }
 
   // ============================================================
@@ -373,39 +495,67 @@ class _ResultsScreenState extends State<ResultsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xffF5F8FC),
+      backgroundColor: background,
+      appBar: _buildAppBar(),
+      body: isLoading
+          ? _loadingView()
+          : errorMessage != null
+          ? _errorView()
+          : RefreshIndicator(
+              color: primary,
+              onRefresh: _loadResults,
+              child: _buildContent(),
+            ),
+    );
+  }
 
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        centerTitle: true,
-        title: const Text(
-          "Exam Results",
-          style: TextStyle(
-            color: Colors.black,
+  // ============================================================
+  // APP BAR
+  // ============================================================
+
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      elevation: 0,
+      backgroundColor: Colors.white,
+      surfaceTintColor: Colors.white,
+      centerTitle: false,
+      titleSpacing: 20,
+      title: const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Exam Results',
+            style: TextStyle(
+              color: textDark,
+              fontSize: 19,
+              fontWeight: FontWeight.w800,
+            ),
           ),
-        ),
-        actions: [
-          IconButton(
-            onPressed: _loadResults,
-            icon: const Icon(
-              Icons.refresh,
-              color: Colors.blue,
+          SizedBox(height: 2),
+          Text(
+            'Track academic performance',
+            style: TextStyle(
+              color: textMuted,
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ],
       ),
-
-      body: isLoading
-          ? const Center(
-              child: CircularProgressIndicator(),
-            )
-          : errorMessage != null
-              ? _errorView()
-              : RefreshIndicator(
-                  onRefresh: _loadResults,
-                  child: _buildContent(),
-                ),
+      actions: [
+        Container(
+          margin: const EdgeInsets.only(right: 12, top: 9, bottom: 9),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF1F4FA),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: IconButton(
+            tooltip: 'Refresh',
+            onPressed: _loadResults,
+            icon: const Icon(Icons.refresh_rounded, color: primary, size: 21),
+          ),
+        ),
+      ],
     );
   }
 
@@ -414,63 +564,51 @@ class _ResultsScreenState extends State<ResultsScreen> {
   // ============================================================
 
   Widget _buildContent() {
-    if (results.isEmpty) {
+    if (allResults.isEmpty) {
       return _emptyView();
     }
 
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 30),
       children: [
         _studentCard(),
 
-        const SizedBox(height: 15),
+        const SizedBox(height: 16),
 
-        _summaryCard(),
+        _examSelector(),
 
-        const SizedBox(height: 25),
+        const SizedBox(height: 16),
 
-        const Text(
-          "Subject Wise Marks",
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 22,
+        if (results.isEmpty)
+          _selectedExamEmpty()
+        else ...[
+          _summaryCard(),
+
+          const SizedBox(height: 22),
+
+          _sectionHeader(
+            title: 'Subject Performance',
+            subtitle: '${results.length} subjects',
           ),
-        ),
 
-        const SizedBox(height: 15),
+          const SizedBox(height: 11),
 
-        ...results.asMap().entries.map(
-          (entry) {
-            return _resultCard(
-              entry.value,
-              entry.key,
-            );
-          },
-        ),
+          ...results.asMap().entries.map((entry) {
+            return _resultCard(entry.value, entry.key);
+          }),
 
-        if (remarks != null &&
-            remarks!.trim().isNotEmpty) ...[
-          const SizedBox(height: 10),
-          _remarksCard(),
+          if (remarks != null && remarks!.trim().isNotEmpty) ...[
+            const SizedBox(height: 6),
+            _remarksCard(),
+          ],
+
+          const SizedBox(height: 20),
+
+          _reportCardButton(),
+
+          const SizedBox(height: 8),
         ],
-
-        const SizedBox(height: 25),
-
-        SizedBox(
-          height: 55,
-          child: ElevatedButton.icon(
-            onPressed: () {
-              // PDF report can be integrated later.
-            },
-            icon: const Icon(Icons.download),
-            label: const Text(
-              "Download Report Card",
-            ),
-          ),
-        ),
-
-        const SizedBox(height: 30),
       ],
     );
   }
@@ -480,62 +618,145 @@ class _ResultsScreenState extends State<ResultsScreen> {
   // ============================================================
 
   Widget _studentCard() {
+    final name = widget.student.name.trim().isEmpty
+        ? 'Student'
+        : widget.student.name.trim();
+
+    final classText =
+        widget.student.className ??
+        widget.student.sectionName ??
+        'Class information unavailable';
+
     return Container(
-      padding: const EdgeInsets.all(16),
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [
-            Color(0xff1565C0),
-            Color(0xff42A5F5),
-          ],
+          colors: [primaryDark, primary, Color(0xFF5B7FF0)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(23),
+        boxShadow: [
+          BoxShadow(
+            color: primary.withOpacity(0.18),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
-      child: Row(
+      child: Stack(
         children: [
-          CircleAvatar(
-            radius: 28,
-            backgroundColor: Colors.white,
-            child: Text(
-              widget.student.name.isNotEmpty
-                  ? widget.student.name[0].toUpperCase()
-                  : "?",
-              style: const TextStyle(
-                color: Color(0xff1565C0),
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
+          Positioned(
+            right: -40,
+            top: -55,
+            child: Container(
+              height: 135,
+              width: 135,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.07),
+                shape: BoxShape.circle,
               ),
             ),
           ),
-
-          const SizedBox(width: 14),
-
-          Expanded(
-            child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.student.name,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-
-                const SizedBox(height: 4),
-
-                Text(
-                  widget.student.className ??
-                      widget.student.sectionName ??
-                      "Class information unavailable",
-                  style: const TextStyle(
-                    color: Colors.white70,
-                  ),
-                ),
-              ],
+          Positioned(
+            right: 30,
+            bottom: -65,
+            child: Container(
+              height: 105,
+              width: 105,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.05),
+                shape: BoxShape.circle,
+              ),
             ),
+          ),
+          Row(
+            children: [
+              Container(
+                height: 62,
+                width: 62,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.15),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Colors.white.withOpacity(0.25),
+                    width: 1.5,
+                  ),
+                ),
+                child: Center(
+                  child: Text(
+                    name[0].toUpperCase(),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 25,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 15),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 9,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.13),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Text(
+                        'ACADEMIC RESULTS',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.7,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.school_rounded,
+                          size: 14,
+                          color: Colors.white.withOpacity(0.78),
+                        ),
+                        const SizedBox(width: 5),
+                        Expanded(
+                          child: Text(
+                            classText,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.78),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -543,79 +764,672 @@ class _ResultsScreenState extends State<ResultsScreen> {
   }
 
   // ============================================================
-  // SUMMARY CARD
+  // EXAM SELECTOR
   // ============================================================
 
-  Widget _summaryCard() {
+  Widget _examSelector() {
     return Container(
-      padding: const EdgeInsets.all(20),
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [
-            Color(0xff1565C0),
-            Color(0xff42A5F5),
-          ],
-        ),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: border),
+        boxShadow: [
+          BoxShadow(
+            color: primary.withOpacity(0.04),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const CircleAvatar(
-            radius: 38,
-            backgroundColor: Colors.white,
-            child: Icon(
-              Icons.workspace_premium,
-              color: Colors.amber,
-              size: 40,
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          Text(
-            examName,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-
-          const SizedBox(height: 20),
-
+          // --------------------------------------------------------
+          // HEADER
+          // --------------------------------------------------------
           Row(
-            mainAxisAlignment:
-                MainAxisAlignment.spaceAround,
             children: [
-              _ResultBox(
-                "${percentage.toStringAsFixed(1)}%",
-                "Percentage",
+              Container(
+                height: 42,
+                width: 42,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [primaryDark, primary],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(13),
+                  boxShadow: [
+                    BoxShadow(
+                      color: primary.withOpacity(0.18),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.assignment_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
               ),
 
-              _ResultBox(
-                overallGrade,
-                "Grade",
+              const SizedBox(width: 12),
+
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Examination',
+                      style: TextStyle(
+                        color: textDark,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    SizedBox(height: 3),
+                    Text(
+                      'Select an exam to view results',
+                      style: TextStyle(
+                        color: textMuted,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
               ),
 
-              _ResultBox(
-                classRank?.toString() ?? "-",
-                "Class Rank",
-              ),
+              if (availableExams.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF1F4FA),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.layers_rounded,
+                        color: primary,
+                        size: 12,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${availableExams.length}',
+                        style: const TextStyle(
+                          color: primary,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
             ],
           ),
 
-          if (sectionRank != null) ...[
-            const SizedBox(height: 16),
-            Text(
-              "Section Rank: $sectionRank",
-              style: const TextStyle(
-                color: Colors.white70,
+          const SizedBox(height: 15),
+
+          // --------------------------------------------------------
+          // PREMIUM EXAM SELECTOR
+          // --------------------------------------------------------
+          PopupMenuButton<String>(
+            initialValue: selectedExam,
+            onSelected: _selectExam,
+            offset: const Offset(0, 8),
+            constraints: const BoxConstraints(minWidth: 320, maxWidth: 500),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(17),
+            ),
+            elevation: 8,
+            color: Colors.white,
+            itemBuilder: (context) {
+              return availableExams.map((exam) {
+                final isSelected = exam == selectedExam;
+
+                return PopupMenuItem<String>(
+                  value: exam,
+                  height: 64,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 5,
+                  ),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 11,
+                      vertical: 9,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? primary.withOpacity(0.07)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          height: 34,
+                          width: 34,
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? primary.withOpacity(0.12)
+                                : const Color(0xFFF3F5F9),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(
+                            Icons.event_note_rounded,
+                            color: isSelected ? primary : textMuted,
+                            size: 17,
+                          ),
+                        ),
+
+                        const SizedBox(width: 10),
+
+                        Expanded(
+                          child: Text(
+                            exam,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: isSelected ? primary : textDark,
+                              fontSize: 12,
+                              fontWeight: isSelected
+                                  ? FontWeight.w800
+                                  : FontWeight.w600,
+                            ),
+                          ),
+                        ),
+
+                        if (isSelected)
+                          const Icon(
+                            Icons.check_circle_rounded,
+                            color: primary,
+                            size: 19,
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList();
+            },
+
+            // ------------------------------------------------------
+            // SELECTED EXAM BOX
+            // ------------------------------------------------------
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [const Color(0xFFF7F9FF), primary.withOpacity(0.035)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(15),
+                border: Border.all(
+                  color: primary.withOpacity(0.16),
+                  width: 1.1,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    height: 40,
+                    width: 40,
+                    decoration: BoxDecoration(
+                      color: primary.withOpacity(0.10),
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                    child: const Icon(
+                      Icons.school_rounded,
+                      color: primary,
+                      size: 20,
+                    ),
+                  ),
+
+                  const SizedBox(width: 11),
+
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'CURRENT EXAMINATION',
+                          style: TextStyle(
+                            color: textMuted,
+                            fontSize: 8,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.7,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          selectedExam ?? 'Select Examination',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: textDark,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  Container(
+                    height: 34,
+                    width: 34,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: border),
+                    ),
+                    child: const Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: primary,
+                      size: 20,
+                    ),
+                  ),
+                ],
               ),
             ),
-          ],
+          ),
         ],
       ),
+    );
+  }
+  // ============================================================
+  // SUMMARY
+  // ============================================================
+
+  Widget _summaryCard() {
+    final scoreColor = _scoreColor(percentage);
+
+    final examDate = _formatExamDate();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [primaryDark, primary, Color(0xFF5B7FF0)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: primary.withOpacity(0.18),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          Positioned(
+            right: -45,
+            top: -50,
+            child: Container(
+              height: 135,
+              width: 135,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.07),
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    height: 44,
+                    width: 44,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.13),
+                      borderRadius: BorderRadius.circular(13),
+                    ),
+                    child: const Icon(
+                      Icons.workspace_premium_rounded,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          selectedExam ?? 'Exam Results',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        if (examDate.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Exam Date • $examDate',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.70),
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 22),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  _scoreCircle(percentage),
+                  const SizedBox(width: 20),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _performanceText(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Overall percentage',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.68),
+                            fontSize: 10,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 11,
+                            vertical: 7,
+                          ),
+                          decoration: BoxDecoration(
+                            color: scoreColor.withOpacity(0.18),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            'Grade $overallGrade',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 22),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 13,
+                  vertical: 14,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(15),
+                  border: Border.all(color: Colors.white.withOpacity(0.08)),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _summaryItem(
+                        Icons.stars_rounded,
+                        _formatNumber(totalMarks),
+                        'Marks Obtained',
+                      ),
+                    ),
+                    _verticalDivider(),
+                    Expanded(
+                      child: _summaryItem(
+                        Icons.assignment_rounded,
+                        _formatNumber(totalMaxMarks),
+                        'Maximum Marks',
+                      ),
+                    ),
+                    _verticalDivider(),
+                    Expanded(
+                      child: _summaryItem(
+                        Icons.emoji_events_rounded,
+                        classRank?.toString() ?? '-',
+                        'Class Rank',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (sectionRank != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 13,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.groups_rounded,
+                        color: Colors.white,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Section Rank',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.72),
+                          fontSize: 10,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '$sectionRank',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // SCORE CIRCLE
+  // ============================================================
+
+  Widget _scoreCircle(double value) {
+    final safeValue = value.clamp(0.0, 100.0);
+
+    return SizedBox(
+      height: 112,
+      width: 112,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          SizedBox(
+            height: 112,
+            width: 112,
+            child: CircularProgressIndicator(
+              value: 1,
+              strokeWidth: 9,
+              backgroundColor: Colors.transparent,
+              valueColor: AlwaysStoppedAnimation(
+                Colors.white.withOpacity(0.16),
+              ),
+            ),
+          ),
+          SizedBox(
+            height: 112,
+            width: 112,
+            child: CircularProgressIndicator(
+              value: safeValue / 100,
+              strokeWidth: 9,
+              backgroundColor: Colors.transparent,
+              valueColor: const AlwaysStoppedAnimation(Colors.white),
+            ),
+          ),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${safeValue.round()}%',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              Text(
+                'Score',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.65),
+                  fontSize: 9,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _summaryItem(IconData icon, String value, String title) {
+    return Column(
+      children: [
+        Icon(icon, color: Colors.white.withOpacity(0.80), size: 17),
+        const SizedBox(height: 5),
+        Text(
+          value,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 14,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          title,
+          textAlign: TextAlign.center,
+          maxLines: 2,
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.62),
+            fontSize: 8,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _verticalDivider() {
+    return Container(
+      height: 42,
+      width: 1,
+      color: Colors.white.withOpacity(0.12),
+    );
+  }
+
+  // ============================================================
+  // SECTION HEADER
+  // ============================================================
+
+  Widget _sectionHeader({required String title, required String subtitle}) {
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  color: textDark,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: const TextStyle(
+                  color: textMuted,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: border),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.analytics_rounded, size: 13, color: primary),
+              SizedBox(width: 5),
+              Text(
+                'Marks',
+                style: TextStyle(
+                  color: textMuted,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -623,117 +1437,194 @@ class _ResultsScreenState extends State<ResultsScreen> {
   // RESULT CARD
   // ============================================================
 
-  Widget _resultCard(
-    Map<String, dynamic> result,
-    int index,
-  ) {
+  Widget _resultCard(Map<String, dynamic> result, int index) {
     final color = _subjectColor(index);
 
-    final marks =
-        (result['marksObtained'] as double?) ?? 0;
+    final marks = (result['marksObtained'] as double?) ?? 0;
 
-    final maxMarks =
-        (result['maxMarks'] as double?) ?? 0;
+    final maxMarks = (result['maxMarks'] as double?) ?? 0;
 
     final resultPercentage =
         (result['percentage'] as double?) ??
-            (maxMarks > 0
-                ? (marks / maxMarks) * 100
-                : 0);
+        (maxMarks > 0 ? (marks / maxMarks) * 100 : 0);
 
-    final grade =
-        result['grade']?.toString() ?? "-";
+    final safePercentage = resultPercentage.clamp(0.0, 100.0);
 
-    final subject =
-        result['subjectName']?.toString() ??
-            "Subject";
+    final scoreColor = _scoreColor(safePercentage);
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 15),
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
+    final grade = result['grade']?.toString() ?? '-';
+
+    final subject = result['subjectName']?.toString() ?? 'Subject';
+
+    final subjectCode = result['subjectCode']?.toString();
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 11),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(19),
+        border: Border.all(color: border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.025),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  backgroundColor:
-                      color.withOpacity(.15),
-                  child: Icon(
-                    Icons.book,
-                    color: color,
-                  ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Container(
+                height: 47,
+                width: 47,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(13),
                 ),
-
-                const SizedBox(width: 15),
-
-                Expanded(
-                  child: Text(
-                    subject,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
+                child: Icon(Icons.menu_book_rounded, color: color, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      subject,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: textDark,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
+                    if (subjectCode != null &&
+                        subjectCode.trim().isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        subjectCode,
+                        style: const TextStyle(
+                          color: textMuted,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 11,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: scoreColor.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(11),
+                  border: Border.all(color: scoreColor.withOpacity(0.12)),
+                ),
+                child: Text(
+                  grade,
+                  style: TextStyle(
+                    color: scoreColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
                   ),
                 ),
+              ),
+            ],
+          ),
 
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.green.shade50,
-                    borderRadius:
-                        BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    grade,
-                    style: const TextStyle(
-                      color: Colors.green,
-                      fontWeight: FontWeight.bold,
-                    ),
+          const SizedBox(height: 16),
+
+          Row(
+            children: [
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: LinearProgressIndicator(
+                    value: safePercentage / 100,
+                    minHeight: 7,
+                    backgroundColor: const Color(0xFFEDF0F5),
+                    valueColor: AlwaysStoppedAnimation(scoreColor),
                   ),
                 ),
-              ],
-            ),
-
-            const SizedBox(height: 16),
-
-            LinearProgressIndicator(
-              value: (resultPercentage / 100)
-                  .clamp(0.0, 1.0),
-              minHeight: 8,
-              borderRadius:
-                  BorderRadius.circular(10),
-            ),
-
-            const SizedBox(height: 12),
-
-            Row(
-              mainAxisAlignment:
-                  MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  "${_formatNumber(marks)}/${_formatNumber(maxMarks)}",
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                  ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                '${safePercentage.round()}%',
+                style: TextStyle(
+                  color: scoreColor,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
                 ),
+              ),
+            ],
+          ),
 
-                Text(
-                  "${resultPercentage.toStringAsFixed(0)}%",
+          const SizedBox(height: 13),
+
+          Row(
+            children: [
+              Expanded(
+                child: _resultInfo(
+                  Icons.stars_rounded,
+                  '${_formatNumber(marks)} / ${_formatNumber(maxMarks)}',
+                  'Marks',
                 ),
-              ],
-            ),
-          ],
+              ),
+              Expanded(
+                child: _resultInfo(
+                  Icons.percent_rounded,
+                  '${safePercentage.round()}%',
+                  'Percentage',
+                ),
+              ),
+              Expanded(child: _resultInfo(Icons.grade_rounded, grade, 'Grade')),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _resultInfo(IconData icon, String value, String title) {
+    return Row(
+      children: [
+        Icon(icon, color: textMuted, size: 14),
+        const SizedBox(width: 5),
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: textDark,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                title,
+                style: const TextStyle(
+                  color: textMuted,
+                  fontSize: 8,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
+      ],
     );
   }
 
@@ -742,34 +1633,109 @@ class _ResultsScreenState extends State<ResultsScreen> {
   // ============================================================
 
   Widget _remarksCard() {
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(17),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(19),
+        border: Border.all(color: border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.025),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment:
-              CrossAxisAlignment.start,
-          children: [
-            const Text(
-              "Teacher Remarks",
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 18,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                height: 38,
+                width: 38,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF59E0B).withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: const Icon(
+                  Icons.chat_bubble_outline_rounded,
+                  color: Color(0xFFF59E0B),
+                  size: 19,
+                ),
               ),
+              const SizedBox(width: 11),
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Teacher Remarks',
+                    style: TextStyle(
+                      color: textDark,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  SizedBox(height: 3),
+                  Text(
+                    'Feedback from the school',
+                    style: TextStyle(color: textMuted, fontSize: 9),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(13),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFFBEB),
+              borderRadius: BorderRadius.circular(13),
             ),
-
-            const SizedBox(height: 12),
-
-            Text(
+            child: Text(
               remarks!,
               style: const TextStyle(
+                color: textDark,
+                fontSize: 11,
                 height: 1.5,
+                fontWeight: FontWeight.w500,
               ),
             ),
-          ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // REPORT BUTTON
+  // ============================================================
+
+  Widget _reportCardButton() {
+    return SizedBox(
+      height: 52,
+      child: OutlinedButton.icon(
+        onPressed: () {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Report card download will be available soon.'),
+            ),
+          );
+        },
+        icon: const Icon(Icons.download_rounded, size: 19),
+        label: const Text(
+          'Download Report Card',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: primary,
+          side: const BorderSide(color: primary),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(15),
+          ),
         ),
       ),
     );
@@ -784,40 +1750,58 @@ class _ResultsScreenState extends State<ResultsScreen> {
       physics: const AlwaysScrollableScrollPhysics(),
       children: [
         SizedBox(
-          height:
-              MediaQuery.of(context).size.height * .65,
+          height: MediaQuery.of(context).size.height * .70,
           child: Center(
             child: Padding(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.all(28),
               child: Column(
-                mainAxisAlignment:
-                    MainAxisAlignment.center,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    Icons.school_outlined,
-                    size: 70,
-                    color: Colors.grey.shade400,
-                  ),
-
-                  const SizedBox(height: 15),
-
-                  const Text(
-                    "No published results available",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
+                  Container(
+                    height: 86,
+                    width: 86,
+                    decoration: BoxDecoration(
+                      color: primary.withOpacity(0.08),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.assignment_outlined,
+                      size: 42,
+                      color: primary,
                     ),
                   ),
-
-                  const SizedBox(height: 8),
-
-                  Text(
-                    "Results will appear here once "
-                    "the school publishes them.",
+                  const SizedBox(height: 20),
+                  const Text(
+                    'No Published Results',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      color: Colors.grey.shade600,
+                      color: textDark,
+                      fontSize: 19,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Exam results will appear here once '
+                    'the school publishes them.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: textMuted,
+                      fontSize: 12,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  OutlinedButton.icon(
+                    onPressed: _loadResults,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('Refresh'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: primary,
+                      side: const BorderSide(color: primary),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(13),
+                      ),
                     ),
                   ),
                 ],
@@ -830,81 +1814,151 @@ class _ResultsScreenState extends State<ResultsScreen> {
   }
 
   // ============================================================
+  // SELECTED EXAM EMPTY
+  // ============================================================
+
+  Widget _selectedExamEmpty() {
+    return Container(
+      margin: const EdgeInsets.only(top: 5),
+      padding: const EdgeInsets.all(28),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: border),
+      ),
+      child: Column(
+        children: [
+          Container(
+            height: 70,
+            width: 70,
+            decoration: BoxDecoration(
+              color: primary.withOpacity(0.08),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.assignment_late_outlined,
+              color: primary,
+              size: 34,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'No Results for ${selectedExam ?? 'this exam'}',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: textDark,
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Published subject results are not available for this examination.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: textMuted, fontSize: 11, height: 1.4),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
   // ERROR
   // ============================================================
 
   Widget _errorView() {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(28),
         child: Column(
-          mainAxisAlignment:
-              MainAxisAlignment.center,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.error_outline,
-              size: 60,
-              color: Colors.red.shade300,
+            Container(
+              height: 82,
+              width: 82,
+              decoration: BoxDecoration(
+                color: const Color(0xFFDC2626).withOpacity(0.08),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.error_outline_rounded,
+                size: 42,
+                color: Color(0xFFDC2626),
+              ),
             ),
-
-            const SizedBox(height: 15),
-
+            const SizedBox(height: 18),
+            const Text(
+              'Unable to Load Results',
+              style: TextStyle(
+                color: textDark,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 7),
             Text(
               errorMessage ??
-                  "Unable to load results.",
+                  'Something went wrong while loading exam results.',
               textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: textMuted,
+                fontSize: 11,
+                height: 1.5,
+              ),
             ),
-
-            const SizedBox(height: 18),
-
+            const SizedBox(height: 20),
             ElevatedButton.icon(
               onPressed: _loadResults,
-              icon: const Icon(Icons.refresh),
-              label: const Text("Retry"),
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Try Again'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primary,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(13),
+                ),
+              ),
             ),
           ],
         ),
       ),
     );
   }
-}
 
-// ================================================================
-// RESULT BOX
-// ================================================================
+  // ============================================================
+  // LOADING
+  // ============================================================
 
-class _ResultBox extends StatelessWidget {
-  final String value;
-  final String title;
-
-  const _ResultBox(
-    this.value,
-    this.title,
-  );
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
+  Widget _loadingView() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
       children: [
-        Text(
-          value,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 22,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-
-        const SizedBox(height: 5),
-
-        Text(
-          title,
-          style: const TextStyle(
-            color: Colors.white70,
-          ),
-        ),
+        _skeletonBox(height: 125, radius: 23),
+        const SizedBox(height: 15),
+        _skeletonBox(height: 130, radius: 19),
+        const SizedBox(height: 15),
+        _skeletonBox(height: 230, radius: 24),
+        const SizedBox(height: 20),
+        _skeletonBox(height: 115, radius: 19),
+        const SizedBox(height: 11),
+        _skeletonBox(height: 115, radius: 19),
       ],
     );
   }
-}
 
+  Widget _skeletonBox({required double height, required double radius}) {
+    return Container(
+      height: height,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(color: border),
+      ),
+    );
+  }
+}

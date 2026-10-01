@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:parent_app/models/student_response.dart';
 import 'package:parent_app/services/api_service.dart';
+import 'package:parent_app/services/fee_service.dart';
 
 class FeeDetailsScreen extends StatefulWidget {
   final StudentResponse student;
@@ -19,29 +20,21 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
   bool isLoading = true;
   String? errorMessage;
 
-  // Actual payment transactions
   List<Map<String, dynamic>> paymentHistory = [];
 
-  // Assigned fee records
-  double totalPending = 0;
-  double totalOutstanding = 0;
-
-  // Actual payments
+  // Fee summary
+  double totalFee = 0;
   double totalPaid = 0;
+  double totalPending = 0;
 
   @override
   void initState() {
     super.initState();
-
-    debugPrint('💰 FeeDetailsScreen opened');
-    debugPrint('👤 Student ID: ${widget.student.id}');
-    debugPrint('👤 Student Name: ${widget.student.name}');
-
     _loadFees();
   }
 
   // ============================================================
-  // LOAD FEES + ACTUAL PAYMENT HISTORY
+  // LOAD ASSIGNED FEES AND PAYMENT HISTORY
   // ============================================================
 
   Future<void> _loadFees() async {
@@ -53,189 +46,137 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
     });
 
     try {
-      debugPrint('════════════════════════════════════════════════════');
-      debugPrint('💰 Loading fee details');
-      debugPrint('👤 Student ID: ${widget.student.id}');
-      debugPrint('════════════════════════════════════════════════════');
-
-      // ----------------------------------------------------------
-      // 1. LOAD ASSIGNED FEES
-      // ----------------------------------------------------------
-
-      final feeResponse = await ApiService.getStudentFees(
+      // 1. Load all assigned fee records.
+      final feeResponse = await FeeService.getStudentFees(
         widget.student.id,
         pending: false,
       );
 
-      debugPrint(
-        '💰 Assigned Fees Status: ${feeResponse.statusCode}',
-      );
-
-      double pendingAmount = 0;
-
-      if (feeResponse.statusCode == 200) {
-        final feeData = ApiService.decodeResponse(feeResponse);
-
-        debugPrint('💰 Assigned Fees Response: $feeData');
-
-        if (feeData is List) {
-          pendingAmount = _calculateOutstanding(feeData);
-        }
-      } else {
-        debugPrint(
-          '⚠️ Assigned Fees API failed: ${feeResponse.statusCode}',
+      if (feeResponse.statusCode != 200) {
+        throw Exception(
+          'Unable to load assigned fees (${feeResponse.statusCode}).',
         );
       }
 
-      // ----------------------------------------------------------
-      // 2. LOAD ACTUAL PAYMENT HISTORY
-      // ----------------------------------------------------------
+      final feeData = ApiService.decodeResponse(feeResponse);
 
-      final paymentResponse =
-          await ApiService.getStudentPayments(widget.student.id);
+      if (feeData is! List) {
+        throw Exception('Invalid assigned fees response.');
+      }
 
-      debugPrint(
-        '💳 Payment History Status: ${paymentResponse.statusCode}',
-      );
+      final double assignedTotal = _calculateTotalFee(feeData);
 
-      debugPrint(
-        '💳 Payment History Response: ${paymentResponse.body}',
+      // 2. Load actual payment transactions.
+      final paymentResponse = await FeeService.getStudentPayments(
+        widget.student.id,
       );
 
       if (paymentResponse.statusCode != 200) {
-        if (mounted) {
-          setState(() {
-            errorMessage =
-                'Unable to load payment history. '
-                '(${paymentResponse.statusCode})';
-          });
-        }
-        return;
+        throw Exception(
+          'Unable to load payment history '
+          '(${paymentResponse.statusCode}).',
+        );
       }
 
       final paymentData = ApiService.decodeResponse(paymentResponse);
 
-      debugPrint('💳 Decoded Payment Data: $paymentData');
+      if (paymentData is! List) {
+        throw Exception('Invalid payment history response.');
+      }
 
       double paidAmount = 0;
       final List<Map<String, dynamic>> payments = [];
 
-      if (paymentData is List) {
-        for (final item in paymentData) {
-          if (item is! Map) continue;
+      for (final item in paymentData) {
+        if (item is! Map) continue;
 
-          final map = Map<String, dynamic>.from(item);
+        final map = Map<String, dynamic>.from(item);
+        final double amount = _parseAmount(map['amount']);
 
-          final double amount = _parseAmount(map['amount']);
+        // Assumes this endpoint returns valid payment transactions
+        // for the requested student.
+        paidAmount += amount;
 
-          paidAmount += amount;
-
-          payments.add({
-            'id': map['id'],
-            'studentFeeId': map['studentFeeId'],
-            'studentId': map['studentId'],
-            'studentName': map['studentName'],
-            'receiptNumber': map['receiptNumber'],
-            'paymentMethod': map['paymentMethod'],
-            'remarks': map['remarks'],
-            'amount': amount,
-            'paymentDate': _formatPaymentDate(
-              map['paymentDate'],
-            ),
-          });
-
-          debugPrint(
-            '💳 Payment: '
-            'ID=${map['id']} '
-            'Amount=${map['amount']} '
-            'Receipt=${map['receiptNumber']} '
-            'Date=${map['paymentDate']}',
-          );
-        }
+        payments.add({
+          'id': map['id'],
+          'studentFeeId': map['studentFeeId'],
+          'studentId': map['studentId'],
+          'studentName': map['studentName'],
+          'receiptNumber': map['receiptNumber'],
+          'paymentMethod': map['paymentMethod'],
+          'remarks': map['remarks'],
+          'amount': amount,
+          'paymentDate': _formatPaymentDate(map['paymentDate']),
+          '_sortDate': _parseDate(map['paymentDate']),
+        });
       }
 
-      // Latest payments first
+      // Latest payments first.
       payments.sort((a, b) {
-        final dateA = _parseDate(a['paymentDate']);
-        final dateB = _parseDate(b['paymentDate']);
-
+        final dateA = a['_sortDate'] as DateTime;
+        final dateB = b['_sortDate'] as DateTime;
         return dateB.compareTo(dateA);
       });
 
+      // Pending = Total Fee - Total Paid.
+      // Never display a negative pending amount.
+      final double pendingAmount =
+          (assignedTotal - paidAmount)
+              .clamp(0.0, double.infinity)
+              .toDouble();
+
       if (!mounted) return;
 
       setState(() {
-        paymentHistory = payments;
-
+        totalFee = assignedTotal;
         totalPaid = paidAmount;
-
         totalPending = pendingAmount;
-        totalOutstanding = pendingAmount;
-
+        paymentHistory = payments;
         isLoading = false;
       });
 
-      debugPrint('════════════════════════════════════════════════════');
-      debugPrint('💰 FINAL FEE SUMMARY');
-      debugPrint('💳 Total Paid: $totalPaid');
-      debugPrint('⏳ Total Pending: $totalPending');
-      debugPrint('💰 Outstanding: $totalOutstanding');
-      debugPrint('💳 Payment Count: ${paymentHistory.length}');
-      debugPrint('════════════════════════════════════════════════════');
+      debugPrint('========== FEE SUMMARY ==========');
+      debugPrint('Total Fee: $totalFee');
+      debugPrint('Total Paid: $totalPaid');
+      debugPrint('Total Pending: $totalPending');
+      debugPrint('Payment Count: ${paymentHistory.length}');
+      debugPrint('=================================');
     } catch (e, stackTrace) {
-      debugPrint('❌ FeeDetailsScreen Error: $e');
-      debugPrint('📍 StackTrace: $stackTrace');
+      debugPrint('FeeDetailsScreen error: $e');
+      debugPrint('$stackTrace');
 
       if (!mounted) return;
 
       setState(() {
-        errorMessage = 'Failed to load fee details.';
+        errorMessage = e.toString().replaceFirst('Exception: ', '');
         isLoading = false;
       });
     }
   }
 
   // ============================================================
-  // CALCULATE OUTSTANDING FROM FEE RECORDS
+  // CALCULATE TOTAL ASSIGNED FEE
   // ============================================================
 
-  double _calculateOutstanding(List<dynamic> data) {
-    double outstanding = 0;
+  double _calculateTotalFee(List<dynamic> data) {
+    double total = 0;
 
     for (final item in data) {
       if (item is! Map) continue;
 
       final map = Map<String, dynamic>.from(item);
 
-      final double amount = _parseAmount(
+      final amount = _parseAmount(
         map['amount'] ??
             map['feeAmount'] ??
             map['totalAmount'] ??
-            map['payableAmount'] ??
-            map['outstandingAmount'] ??
-            map['balanceAmount'],
+            map['payableAmount'],
       );
 
-      final String status =
-          (map['status'] ??
-                  map['paymentStatus'] ??
-                  map['feeStatus'] ??
-                  'PENDING')
-              .toString()
-              .toUpperCase();
-
-      final bool isFullyPaid =
-          status == 'PAID' ||
-          status == 'COMPLETED' ||
-          status == 'SUCCESS' ||
-          status == 'FULLY_PAID';
-
-      if (!isFullyPaid) {
-        outstanding += amount;
-      }
+      total += amount;
     }
 
-    return outstanding;
+    return total;
   }
 
   // ============================================================
@@ -259,7 +200,7 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
   }
 
   // ============================================================
-  // DATE
+  // DATE HELPERS
   // ============================================================
 
   String _formatPaymentDate(dynamic value) {
@@ -267,46 +208,29 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
 
     final parsed = DateTime.tryParse(value.toString());
 
-    if (parsed == null) {
-      return value.toString();
-    }
+    if (parsed == null) return value.toString();
 
     return '${parsed.day.toString().padLeft(2, '0')} '
-        '${_monthName(parsed.month)} '
-        '${parsed.year}';
+        '${_monthName(parsed.month)} ${parsed.year}';
   }
 
   DateTime _parseDate(dynamic value) {
-    if (value == null) {
-      return DateTime(1970);
-    }
+    if (value == null) return DateTime(1970);
 
-    final parsed = DateTime.tryParse(value.toString());
-
-    return parsed ?? DateTime(1970);
+    return DateTime.tryParse(value.toString()) ?? DateTime(1970);
   }
 
   String _monthName(int month) {
     const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
     ];
 
     return months[month - 1];
   }
 
   // ============================================================
-  // AMOUNT FORMAT
+  // CURRENCY FORMAT
   // ============================================================
 
   String _formatAmount(double amount) {
@@ -328,14 +252,12 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
       appBar: AppBar(
         title: const Text(
           'Fee Details',
-          style: TextStyle(
-            fontWeight: FontWeight.w700,
-          ),
+          style: TextStyle(fontWeight: FontWeight.w700),
         ),
         centerTitle: true,
         elevation: 0,
         backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
+        foregroundColor: const Color(0xFF1F2937),
         actions: [
           IconButton(
             onPressed: _loadFees,
@@ -345,9 +267,7 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
         ],
       ),
       body: isLoading
-          ? const Center(
-              child: CircularProgressIndicator(),
-            )
+          ? const Center(child: CircularProgressIndicator())
           : errorMessage != null
               ? _errorView()
               : RefreshIndicator(
@@ -368,15 +288,16 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
       children: [
         _studentCard(),
 
-        const SizedBox(height: 18),
+        const SizedBox(height: 20),
 
+        // Total Fee and Paid.
         Row(
           children: [
             Expanded(
               child: _summaryCard(
-                'Outstanding',
-                _formatAmount(totalOutstanding),
-                Colors.red,
+                'Total Fee',
+                _formatAmount(totalFee),
+                const Color(0xFF3949AB),
                 Icons.account_balance_wallet_rounded,
               ),
             ),
@@ -394,11 +315,13 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
 
         const SizedBox(height: 12),
 
+        // Only one remaining-balance card is needed.
         _summaryCard(
-          'Pending',
+          'Pending Fee',
           _formatAmount(totalPending),
-          Colors.orange,
+          Colors.orange.shade800,
           Icons.pending_actions_rounded,
+          fullWidth: true,
         ),
 
         const SizedBox(height: 28),
@@ -442,9 +365,7 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
         if (paymentHistory.isEmpty)
           _emptyView()
         else
-          ...paymentHistory.map(
-            (payment) => _paymentHistoryCard(payment),
-          ),
+          ...paymentHistory.map(_paymentHistoryCard),
       ],
     );
   }
@@ -468,7 +389,7 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF3949AB).withOpacity(0.25),
+            color: const Color(0xFF3949AB).withOpacity(0.20),
             blurRadius: 18,
             offset: const Offset(0, 8),
           ),
@@ -500,9 +421,7 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
               ),
             ),
           ),
-
           const SizedBox(width: 14),
-
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -517,9 +436,7 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
                     fontWeight: FontWeight.w800,
                   ),
                 ),
-
                 const SizedBox(height: 5),
-
                 Text(
                   widget.student.className ??
                       widget.student.sectionName ??
@@ -530,7 +447,6 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
                     fontWeight: FontWeight.w500,
                   ),
                 ),
-
                 if (widget.student.admissionNo != null) ...[
                   const SizedBox(height: 3),
                   Text(
@@ -544,7 +460,6 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
               ],
             ),
           ),
-
           const Icon(
             Icons.receipt_long_rounded,
             color: Colors.white70,
@@ -563,16 +478,16 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
     String title,
     String amount,
     Color color,
-    IconData icon,
-  ) {
+    IconData icon, {
+    bool fullWidth = false,
+  }) {
     return Container(
+      width: fullWidth ? double.infinity : null,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: Colors.grey.shade200,
-        ),
+        border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.04),
@@ -589,15 +504,9 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
               color: color.withOpacity(0.10),
               shape: BoxShape.circle,
             ),
-            child: Icon(
-              icon,
-              color: color,
-              size: 23,
-            ),
+            child: Icon(icon, color: color, size: 23),
           ),
-
           const SizedBox(width: 11),
-
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -610,11 +519,11 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-
                 const SizedBox(height: 4),
-
                 Text(
                   amount,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: color,
                     fontSize: 18,
@@ -656,9 +565,7 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: Colors.grey.shade200,
-        ),
+        border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.035),
@@ -684,24 +591,20 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
                   size: 27,
                 ),
               ),
-
               const SizedBox(width: 13),
-
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    const Text(
                       'Payment Received',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
                         color: Color(0xFF1F2937),
                       ),
                     ),
-
                     const SizedBox(height: 4),
-
                     Text(
                       date,
                       style: TextStyle(
@@ -712,7 +615,6 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
                   ],
                 ),
               ),
-
               Text(
                 _formatAmount(amount),
                 style: const TextStyle(
@@ -723,16 +625,9 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
               ),
             ],
           ),
-
           const SizedBox(height: 14),
-
-          Divider(
-            height: 1,
-            color: Colors.grey.shade200,
-          ),
-
+          Divider(height: 1, color: Colors.grey.shade200),
           const SizedBox(height: 13),
-
           Row(
             children: [
               Expanded(
@@ -742,7 +637,6 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
                   receipt,
                 ),
               ),
-
               Expanded(
                 child: _paymentInfo(
                   Icons.payment_rounded,
@@ -752,11 +646,8 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
               ),
             ],
           ),
-
-          if (remarks.isNotEmpty &&
-              remarks != 'null') ...[
+          if (remarks.isNotEmpty && remarks != 'null') ...[
             const SizedBox(height: 12),
-
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(11),
@@ -802,11 +693,7 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
   ) {
     return Row(
       children: [
-        Icon(
-          icon,
-          size: 17,
-          color: Colors.grey.shade500,
-        ),
+        Icon(icon, size: 17, color: Colors.grey.shade500),
         const SizedBox(width: 7),
         Expanded(
           child: Column(
@@ -837,7 +724,7 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
   }
 
   // ============================================================
-  // EMPTY
+  // EMPTY PAYMENT HISTORY
   // ============================================================
 
   Widget _emptyView() {
@@ -849,9 +736,7 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: Colors.grey.shade200,
-        ),
+        border: Border.all(color: Colors.grey.shade200),
       ),
       child: Column(
         children: [
@@ -867,9 +752,7 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
               color: Colors.grey.shade400,
             ),
           ),
-
           const SizedBox(height: 14),
-
           const Text(
             'No payment history',
             style: TextStyle(
@@ -877,9 +760,7 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
               fontWeight: FontWeight.w700,
             ),
           ),
-
           const SizedBox(height: 5),
-
           Text(
             'No payments have been recorded for this student yet.',
             textAlign: TextAlign.center,
@@ -894,7 +775,7 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
   }
 
   // ============================================================
-  // ERROR
+  // ERROR VIEW
   // ============================================================
 
   Widget _errorView() {
@@ -909,9 +790,7 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
               size: 60,
               color: Colors.red.shade300,
             ),
-
             const SizedBox(height: 16),
-
             Text(
               errorMessage ?? 'Something went wrong',
               textAlign: TextAlign.center,
@@ -920,9 +799,7 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
                 fontWeight: FontWeight.w500,
               ),
             ),
-
             const SizedBox(height: 18),
-
             ElevatedButton.icon(
               onPressed: _loadFees,
               icon: const Icon(Icons.refresh_rounded),
@@ -934,4 +811,3 @@ class _FeeDetailsScreenState extends State<FeeDetailsScreen> {
     );
   }
 }
-
