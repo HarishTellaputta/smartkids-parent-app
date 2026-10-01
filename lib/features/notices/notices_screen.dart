@@ -2,18 +2,15 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
-import '../../../services/api_service.dart';
 import 'package:parent_app/models/school_notice.dart';
+import 'package:parent_app/services/api_service.dart';
+import 'package:parent_app/services/notice_service.dart';
 
 class NoticesScreen extends StatefulWidget {
   final int? classId;
   final int? sectionId;
 
-  const NoticesScreen({
-    super.key,
-    this.classId,
-    this.sectionId,
-  });
+  const NoticesScreen({super.key, this.classId, this.sectionId});
 
   @override
   State<NoticesScreen> createState() => _NoticesScreenState();
@@ -38,36 +35,49 @@ class _NoticesScreenState extends State<NoticesScreen> {
     });
 
     try {
-      final response = await ApiService.getNotices(
+      debugPrint('================ NOTICES ================');
+      debugPrint('Class ID: ${widget.classId}');
+      debugPrint('Section ID: ${widget.sectionId}');
+
+      final response = await NoticeService.getNotices(
         classId: widget.classId,
         sectionId: widget.sectionId,
       );
 
-      if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
+      debugPrint('Notice Status: ${response.statusCode}');
+      debugPrint('Notice Response: ${response.body}');
+      debugPrint('==========================================');
 
-        setState(() {
-          notices = data
-              .map(
-                (json) => SchoolNotice.fromJson(
-                  json as Map<String, dynamic>,
-                ),
-              )
-              .toList();
-
-          isLoading = false;
-        });
-      } else {
-        setState(() {
-          errorMessage =
-              'Failed to load notices (${response.statusCode})';
-          isLoading = false;
-        });
+      if (response.statusCode != 200) {
+        throw Exception(
+          'Notice API failed: ${response.statusCode}\n${response.body}',
+        );
       }
-    } catch (e) {
+
+      final decoded = ApiService.decodeResponse(response);
+
+      debugPrint('Decoded notices: $decoded');
+
+      final List<dynamic> data = decoded is List
+          ? decoded
+          : (decoded['content'] as List<dynamic>? ?? []);
+
       setState(() {
-        errorMessage = 'Unable to load notices';
+        notices = data
+            .whereType<Map<String, dynamic>>()
+            .map((json) => SchoolNotice.fromJson(json))
+            .toList();
+
         isLoading = false;
+      });
+    } catch (e) {
+      debugPrint('Notice load failed: $e');
+
+      if (!mounted) return;
+
+      setState(() {
+        isLoading = false;
+        errorMessage = 'Unable to load notices.\n$e';
       });
     }
   }
@@ -85,35 +95,29 @@ class _NoticesScreenState extends State<NoticesScreen> {
       body: RefreshIndicator(
         onRefresh: loadNotices,
         child: isLoading
-            ? const Center(
-                child: CircularProgressIndicator(),
-              )
+            ? const Center(child: CircularProgressIndicator())
             : errorMessage != null
-                ? _errorView()
-                : notices.isEmpty
-                    ? _emptyView()
-                    : ListView.builder(
-                        padding: const EdgeInsets.all(16),
-                        itemCount: notices.length,
-                        itemBuilder: (context, index) {
-                          return noticeCard(notices[index]);
-                        },
-                      ),
+            ? _errorView()
+            : notices.isEmpty
+            ? _emptyView()
+            : ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: notices.length,
+                itemBuilder: (context, index) {
+                  return noticeCard(notices[index]);
+                },
+              ),
       ),
     );
   }
 
   Widget noticeCard(SchoolNotice notice) {
-    final Color priorityColor = getPriorityColor(
-      notice.category,
-    );
+    final Color priorityColor = getPriorityColor(notice.category);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(
@@ -123,12 +127,8 @@ class _NoticesScreenState extends State<NoticesScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 CircleAvatar(
-                  backgroundColor:
-                      priorityColor.withOpacity(.15),
-                  child: Icon(
-                    Icons.campaign,
-                    color: priorityColor,
-                  ),
+                  backgroundColor: priorityColor.withOpacity(.15),
+                  child: Icon(Icons.campaign, color: priorityColor),
                 ),
 
                 const SizedBox(width: 12),
@@ -169,27 +169,16 @@ class _NoticesScreenState extends State<NoticesScreen> {
 
             Text(
               notice.content,
-              style: TextStyle(
-                color: Colors.grey.shade700,
-                height: 1.5,
-              ),
+              style: TextStyle(color: Colors.grey.shade700, height: 1.5),
             ),
 
             const SizedBox(height: 18),
 
             Row(
               children: [
-                const Icon(
-                  Icons.calendar_today,
-                  size: 18,
-                  color: Colors.grey,
-                ),
+                const Icon(Icons.calendar_today, size: 18, color: Colors.grey),
                 const SizedBox(width: 6),
-                Text(
-                  formatDate(
-                    notice.publishedAt ?? notice.createdAt,
-                  ),
-                ),
+                Text(formatDate(notice.publishedAt ?? notice.createdAt)),
 
                 const Spacer(),
 
@@ -197,10 +186,7 @@ class _NoticesScreenState extends State<NoticesScreen> {
                   Text(
                     "${notice.className}"
                     "${notice.sectionName.isNotEmpty ? " - ${notice.sectionName}" : ""}",
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey,
-                    ),
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
                   ),
               ],
             ),
@@ -215,20 +201,17 @@ class _NoticesScreenState extends State<NoticesScreen> {
                         ? Icons.check_circle
                         : Icons.info_outline,
                     size: 17,
-                    color:
-                        notice.status.toLowerCase() == 'published'
-                            ? Colors.green
-                            : Colors.grey,
+                    color: notice.status.toLowerCase() == 'published'
+                        ? Colors.green
+                        : Colors.grey,
                   ),
                   const SizedBox(width: 6),
                   Text(
                     notice.status,
                     style: TextStyle(
-                      color:
-                          notice.status.toLowerCase() ==
-                                  'published'
-                              ? Colors.green
-                              : Colors.grey,
+                      color: notice.status.toLowerCase() == 'published'
+                          ? Colors.green
+                          : Colors.grey,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -247,26 +230,17 @@ class _NoticesScreenState extends State<NoticesScreen> {
         Center(
           child: Column(
             children: [
-              Icon(
-                Icons.campaign_outlined,
-                size: 60,
-                color: Colors.grey,
-              ),
+              Icon(Icons.campaign_outlined, size: 60, color: Colors.grey),
               SizedBox(height: 15),
               Text(
                 "No notices available",
-                style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
               ),
               SizedBox(height: 5),
               Text(
                 "There are no school notices at the moment.",
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.grey,
-                ),
+                style: TextStyle(color: Colors.grey),
               ),
             ],
           ),

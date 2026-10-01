@@ -6,10 +6,12 @@ import 'package:parent_app/widgets/mcq/daily_test_card.dart';
 import 'package:parent_app/models/parent_response.dart';
 import 'package:parent_app/models/student_response.dart';
 import 'package:parent_app/services/api_service.dart';
+import 'package:parent_app/services/parent_service.dart';
 
 import '../attendance/attendance_screen.dart';
 import '../../features/results/results_screen.dart';
 import '../../features/fees/fee_details_screen.dart';
+import '../../features/notices/notices_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -19,11 +21,31 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  // ===========================================================================
+  // COLORS
+  // ===========================================================================
+
+  static const Color primary = Color(0xFF3155D9);
+  static const Color primaryDark = Color(0xFF2343B8);
+  static const Color background = Color(0xFFF5F7FB);
+
+  static const Color textDark = Color(0xFF172033);
+  static const Color textMuted = Color(0xFF697386);
+  static const Color border = Color(0xFFE5E9F0);
+
+  // ===========================================================================
+  // DATA
+  // ===========================================================================
+
   ParentResponse? parent;
   StudentResponse? selectedStudent;
 
   bool isLoading = true;
   String? errorMessage;
+
+  // ===========================================================================
+  // INIT
+  // ===========================================================================
 
   @override
   void initState() {
@@ -34,91 +56,68 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _loadParentProfile();
   }
 
-  // ============================================================
-  // LOAD PARENT + CHILDREN
-  // ============================================================
+  // ===========================================================================
+  // LOAD PARENT
+  // ===========================================================================
 
   Future<void> _loadParentProfile() async {
     debugPrint('👨‍👩‍👧 Dashboard: Loading parent profile...');
 
     try {
-      setState(() {
-        isLoading = true;
-        errorMessage = null;
-      });
+      if (mounted) {
+        setState(() {
+          isLoading = true;
+          errorMessage = null;
+        });
+      }
 
-      debugPrint('🌐 Dashboard: Calling getMyParentProfile()');
-
-      final response = await ApiService.getMyParentProfile();
+      final response = await ParentService.getMyParentProfile();
 
       debugPrint(
         '📥 Dashboard: Parent profile status = ${response.statusCode}',
       );
 
-      debugPrint('📦 Dashboard: Parent profile response = ${response.body}');
-
       if (!mounted) {
-        debugPrint('⚠️ Dashboard: Widget is no longer mounted');
         return;
       }
 
       if (response.statusCode == 200) {
-        debugPrint('✅ Dashboard: Parent profile API successful');
-
         final data = ApiService.decodeResponse(response);
-
-        debugPrint('📦 Dashboard: Decoded parent data = $data');
 
         final parentData = ParentResponse.fromJson(
           data as Map<String, dynamic>,
         );
 
         debugPrint(
-          '👨‍👩‍👧 Dashboard: Parent loaded = ${_parentDisplayName(parentData)}',
+          '👨‍👩‍👧 Parent loaded = ${_parentDisplayName(parentData)}',
         );
 
         debugPrint(
-          '👨‍👩‍👧 Dashboard: Children count = ${parentData.students.length}',
+          '👨‍👩‍👧 Children count = ${parentData.students.length}',
         );
-
-        for (final student in parentData.students) {
-          debugPrint(
-            '👨‍🎓 Student -> '
-            'ID: ${student.id}, '
-            'Name: ${student.name}, '
-            'Class: ${student.className}, '
-            'Section: ${student.sectionName}, '
-            'Admission: ${student.admissionNo}',
-          );
-        }
 
         setState(() {
           parent = parentData;
 
           if (parentData.students.isNotEmpty) {
-            selectedStudent = parentData.students.first;
+            if (selectedStudent != null) {
+              final existing = parentData.students.where(
+                (student) => student.id == selectedStudent!.id,
+              );
 
-            debugPrint(
-              '🎯 Dashboard: Default student selected -> '
-              '${selectedStudent!.name} '
-              '(ID: ${selectedStudent!.id})',
-            );
+              selectedStudent = existing.isNotEmpty
+                  ? existing.first
+                  : parentData.students.first;
+            } else {
+              selectedStudent = parentData.students.first;
+            }
           } else {
             selectedStudent = null;
-
-            debugPrint('⚠️ Dashboard: No students linked to this parent');
           }
 
           isLoading = false;
         });
-
-        debugPrint('✅ Dashboard: Parent profile loading completed');
       } else {
-        debugPrint(
-          '❌ Dashboard: Parent profile API failed '
-          'with status ${response.statusCode}',
-        );
-
         setState(() {
           isLoading = false;
           errorMessage =
@@ -126,8 +125,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         });
       }
     } catch (e, stackTrace) {
-      debugPrint('❌ Dashboard: Parent profile exception');
-      debugPrint('💥 Error: $e');
+      debugPrint('❌ Dashboard exception: $e');
       debugPrint('📍 StackTrace: $stackTrace');
 
       if (!mounted) return;
@@ -139,9 +137,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  // ============================================================
-  // SELECT CHILD
-  // ============================================================
+  // ===========================================================================
+  // SELECT STUDENT
+  // ===========================================================================
 
   void _selectStudent(StudentResponse student) {
     debugPrint(
@@ -149,311 +147,111 @@ class _DashboardScreenState extends State<DashboardScreen> {
       '${student.name} (ID: ${student.id})',
     );
 
-    debugPrint(
-      '🎯 Dashboard: Previous student -> '
-      '${selectedStudent?.name ?? "None"} '
-      '(ID: ${selectedStudent?.id ?? "None"})',
-    );
-
     setState(() {
       selectedStudent = student;
     });
-
-    debugPrint(
-      '✅ Dashboard: Current selected student -> '
-      '${selectedStudent!.name} '
-      '(ID: ${selectedStudent!.id})',
-    );
   }
+
+  // ===========================================================================
+  // STUDENT SELECTOR
+  // ===========================================================================
+
+  Future<void> _openStudentSelector() async {
+    final students = parent?.students ?? [];
+
+    if (students.isEmpty) {
+      return;
+    }
+
+    final selected = await showModalBottomSheet<StudentResponse>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) {
+        return _PremiumStudentSelectorSheet(
+          students: students,
+          selectedStudent: selectedStudent,
+        );
+      },
+    );
+
+    if (selected != null && mounted) {
+      _selectStudent(selected);
+    }
+  }
+
+  // ===========================================================================
+  // BUILD
+  // ===========================================================================
 
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
-      debugPrint('⏳ Dashboard: Showing loading screen');
-
-      return const Scaffold(
-        backgroundColor: Color(0xffF5F8FC),
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return _loadingScreen();
     }
 
     if (errorMessage != null) {
-      debugPrint('⚠️ Dashboard: Showing error screen -> $errorMessage');
-
-      return Scaffold(
-        backgroundColor: const Color(0xffF5F8FC),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.error_outline, size: 50, color: Colors.red),
-
-                const SizedBox(height: 15),
-
-                Text(errorMessage!, textAlign: TextAlign.center),
-
-                const SizedBox(height: 15),
-
-                ElevatedButton(
-                  onPressed: _loadParentProfile,
-                  child: const Text('Retry'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
+      return _errorScreen();
     }
 
     if (parent == null) {
-      debugPrint('⚠️ Dashboard: Parent object is null');
-
       return const Scaffold(
-        body: Center(child: Text('Parent information unavailable')),
+        backgroundColor: background,
+        body: Center(
+          child: Text(
+            'Parent information unavailable',
+            style: TextStyle(
+              color: textDark,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
       );
     }
 
     final parentData = parent!;
 
     return Scaffold(
-      backgroundColor: const Color(0xffF5F8FC),
-
-      // ========================================================
-      // APP BAR
-      // ========================================================
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              "Good Morning 👋",
-              style: TextStyle(fontSize: 13, color: Colors.grey),
-            ),
-
-            Text(
-              _parentDisplayName(parentData),
-              style: const TextStyle(
-                color: Colors.black,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
-
-        actions: [
-          Stack(
-            children: [
-              IconButton(
-                onPressed: () {
-                  debugPrint('🔔 Dashboard: Notification icon clicked');
-                },
-                icon: const Icon(Icons.notifications_none, color: Colors.black),
-              ),
-
-              Positioned(
-                right: 10,
-                top: 10,
-                child: Container(
-                  height: 18,
-                  width: 18,
-                  decoration: const BoxDecoration(
-                    color: Colors.red,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Center(
-                    child: Text(
-                      "3",
-                      style: TextStyle(color: Colors.white, fontSize: 10),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-
-      // ========================================================
-      // BODY
-      // ========================================================
+      backgroundColor: background,
+      appBar: _buildAppBar(parentData),
       body: RefreshIndicator(
-        onRefresh: () async {
-          debugPrint('🔄 Dashboard: Pull-to-refresh triggered');
-
-          await _loadParentProfile();
-        },
-
+        color: primary,
+        backgroundColor: Colors.white,
+        onRefresh: _loadParentProfile,
         child: ListView(
-          padding: const EdgeInsets.all(16),
-
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 36),
           children: [
-            // ==================================================
-            // SCHOOL CARD
-            // ==================================================
+            _welcomeHeader(parentData),
 
-            Container(
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xff1565C0), Color(0xff42A5F5)],
-                ),
-                borderRadius: BorderRadius.circular(20),
-              ),
+            const SizedBox(height: 18),
 
-              child: const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "School",
-                    style: TextStyle(color: Colors.white70, fontSize: 13),
-                  ),
+            _schoolBanner(),
 
-                  SizedBox(height: 4),
+            const SizedBox(height: 18),
 
-                  Text(
-                    "School information will be connected next",
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-
-                  SizedBox(height: 8),
-
-                  Text(
-                    "Learning Today, Leading Tomorrow",
-                    style: TextStyle(color: Colors.white70),
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 20),
-
-            // ==================================================
-            // SELECTED CHILD
-            // ==================================================
             _selectedStudentCard(),
 
-            const SizedBox(height: 20),
+            const SizedBox(height: 18),
 
-            // ==================================================
-            // FEE REMINDER
-            // ==================================================
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.orange.shade50,
-                borderRadius: BorderRadius.circular(16),
-              ),
+            _feeReminderCard(),
 
-              child: Row(
-                children: [
-                  const CircleAvatar(
-                    backgroundColor: Colors.orange,
-                    child: Icon(Icons.currency_rupee, color: Colors.white),
-                  ),
+            const SizedBox(height: 22),
 
-                  const SizedBox(width: 15),
+            _dailyTestSection(),
 
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "Fee Reminder",
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
+            const SizedBox(height: 25),
 
-                        SizedBox(height: 4),
-
-                        Text("Fee information will be loaded next"),
-                      ],
-                    ),
-                  ),
-
-                  ElevatedButton(
-                    onPressed: () {
-                      debugPrint('💰 Dashboard: Pay button clicked');
-
-                      if (selectedStudent == null) {
-                        debugPrint(
-                          '⚠️ Dashboard: Cannot open fees - '
-                          'no student selected',
-                        );
-                        return;
-                      }
-
-                      debugPrint(
-                        '💰 Dashboard: Opening FeeDetailsScreen '
-                        'for student ID ${selectedStudent!.id}',
-                      );
-
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              FeeDetailsScreen(student: selectedStudent!),
-                        ),
-                      );
-                    },
-                    child: const Text("Pay"),
-                  ),
-                ],
-              ),
+            _sectionHeader(
+              title: 'My Children',
+              subtitle: 'Switch between children anytime',
+              icon: Icons.people_alt_rounded,
             ),
 
-            const SizedBox(height: 20),
-
-            // ==================================================
-            // DAILY MCQ TEST
-            // ==================================================
-            DailyTestCard(
-              test: McqTest.dummy(),
-
-              onStartTest: () {
-                debugPrint('📝 Dashboard: Daily MCQ test clicked');
-
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) =>
-                        DailyTestScreen(test: McqTest.dummy()),
-                  ),
-                );
-              },
-            ),
-
-            const SizedBox(height: 20),
-
-            // ==================================================
-            // MY CHILDREN
-            // ==================================================
-            const Text(
-              "My Children",
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-
-            const SizedBox(height: 15),
+            const SizedBox(height: 12),
 
             if (parentData.students.isEmpty)
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(18),
-                ),
-
-                child: const Center(
-                  child: Text("No children linked to this parent."),
-                ),
-              )
+              _emptyChildren()
             else
               ...parentData.students.asMap().entries.map((entry) {
                 final index = entry.key;
@@ -461,406 +259,1871 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                 return Padding(
                   padding: EdgeInsets.only(
-                    bottom: index == parentData.students.length - 1 ? 0 : 15,
+                    bottom:
+                        index == parentData.students.length - 1 ? 0 : 10,
                   ),
-
                   child: GestureDetector(
-                    onTap: () {
-                      debugPrint(
-                        '👆 Dashboard: My Children card clicked '
-                        'for ${student.name} (${student.id})',
-                      );
-
-                      _selectStudent(student);
-                    },
-
+                    onTap: () => _selectStudent(student),
                     child: _studentCard(student, index),
                   ),
                 );
               }),
 
-            const SizedBox(height: 20),
+            const SizedBox(height: 26),
 
-            // ==================================================
-            // QUICK ACTIONS
-            // ==================================================
-            const Text(
-              "Quick Actions",
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            _sectionHeader(
+              title: 'Quick Access',
+              subtitle: 'Everything you need in one place',
+              icon: Icons.grid_view_rounded,
             ),
 
-            const SizedBox(height: 15),
+            const SizedBox(height: 13),
 
-            GridView.count(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-
-              crossAxisCount: 4,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-
-              children: [
-                _Quick(
-                  Icons.calendar_today,
-                  "Attendance",
-
-                  onTap: selectedStudent == null
-                      ? null
-                      : () {
-                          debugPrint(
-                            '📅 Dashboard: Attendance clicked '
-                            'for student ${selectedStudent!.id}',
-                          );
-
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) =>
-                                  AttendanceScreen(student: selectedStudent!),
-                            ),
-                          );
-                        },
-                ),
-
-                _Quick(
-                  Icons.menu_book,
-                  "Homework",
-
-                  onTap: () {
-                    debugPrint(
-                      '📚 Dashboard: Homework clicked '
-                      'for student ${selectedStudent?.id}',
-                    );
-                  },
-                ),
-
-                _Quick(
-                  Icons.bar_chart,
-                  "Results",
-
-                  onTap: selectedStudent == null
-                      ? null
-                      : () {
-                          debugPrint(
-                            '📊 Dashboard: Results clicked '
-                            'for student ${selectedStudent!.id}',
-                          );
-
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  ResultsScreen(student: selectedStudent!),
-                            ),
-                          );
-                        },
-                ),
-
-                _Quick(
-                  Icons.currency_rupee,
-                  "Fees",
-
-                  onTap: selectedStudent == null
-                      ? null
-                      : () {
-                          debugPrint(
-                            '💰 Dashboard: Fees clicked '
-                            'for student ${selectedStudent!.id}',
-                          );
-
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  FeeDetailsScreen(student: selectedStudent!),
-                            ),
-                          );
-                        },
-                ),
-
-                _Quick(
-                  Icons.schedule,
-                  "Timetable",
-
-                  onTap: () {
-                    debugPrint(
-                      '🕐 Dashboard: Timetable clicked '
-                      'for student ${selectedStudent?.id}',
-                    );
-                  },
-                ),
-
-                _Quick(
-                  Icons.event,
-                  "Events",
-
-                  onTap: () {
-                    debugPrint('📅 Dashboard: Events clicked');
-                  },
-                ),
-
-                _Quick(
-                  Icons.notifications,
-                  "Notices",
-
-                  onTap: () {
-                    debugPrint('🔔 Dashboard: Notices clicked');
-                  },
-                ),
-
-                _Quick(
-                  Icons.person,
-                  "Profile",
-
-                  onTap: () {
-                    debugPrint(
-                      '👤 Dashboard: Profile clicked '
-                      'for student ${selectedStudent?.id}',
-                    );
-                  },
-                ),
-              ],
-            ),
+            _quickActionsGrid(),
           ],
         ),
       ),
     );
   }
 
-  // ============================================================
-  // PARENT NAME
-  // ============================================================
+  // ===========================================================================
+  // APP BAR
+  // ===========================================================================
 
-  String _parentDisplayName(ParentResponse parent) {
-    if (parent.fatherName != null && parent.fatherName!.trim().isNotEmpty) {
-      return parent.fatherName!;
-    }
-
-    if (parent.motherName != null && parent.motherName!.trim().isNotEmpty) {
-      return parent.motherName!;
-    }
-
-    if (parent.guardianName != null && parent.guardianName!.trim().isNotEmpty) {
-      return parent.guardianName!;
-    }
-
-    return "Parent";
-  }
-
-  // ============================================================
-  // SELECTED STUDENT CARD
-  // ============================================================
-
-  Widget _selectedStudentCard() {
-    final students = parent?.students ?? [];
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: const [
-          BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 3)),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+  PreferredSizeWidget _buildAppBar(ParentResponse parentData) {
+    return AppBar(
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      backgroundColor: background,
+      surfaceTintColor: background,
+      automaticallyImplyLeading: false,
+      titleSpacing: 16,
+      title: Row(
         children: [
-          const Text(
-            "Select Student",
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey,
-              fontWeight: FontWeight.w500,
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  primary,
+                  primaryDark,
+                ],
+              ),
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [
+                BoxShadow(
+                  color: primary.withOpacity(.18),
+                  blurRadius: 14,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: const Icon(
+              Icons.school_rounded,
+              color: Colors.white,
+              size: 23,
             ),
           ),
 
-          const SizedBox(height: 8),
-
-          if (students.isEmpty)
-            const Text(
-              "No students linked to this parent",
-              style: TextStyle(
-                fontSize: 15,
-                color: Colors.red,
-                fontWeight: FontWeight.w500,
-              ),
-            )
-          else
-            DropdownButtonFormField<StudentResponse>(
-              value: selectedStudent,
-              isExpanded: true,
-              decoration: InputDecoration(
-                prefixIcon: const Icon(Icons.person, color: Color(0xff1565C0)),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 4,
-                ),
-              ),
-              hint: const Text("Select Student"),
-              items: students.map((student) {
-                return DropdownMenuItem<StudentResponse>(
-                  value: student,
-                  child: Text(
-                    "${student.name} - ${student.className ?? ''}",
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                );
-              }).toList(),
-              onChanged: (student) {
-                if (student == null) return;
-
-                print(
-                  '🎯 Dashboard student changed: '
-                  '${student.id} - ${student.name}',
-                );
-
-                _selectStudent(student);
-              },
-            ),
-        ],
-      ),
-    );
-  }
-
-  // ============================================================
-  // STUDENT CARD
-  // ============================================================
-
-  Widget _studentCard(StudentResponse student, int index) {
-    final colors = [Colors.green, Colors.blue, Colors.orange, Colors.purple];
-
-    final color = colors[index % colors.length];
-
-    final isSelected = selectedStudent?.id == student.id;
-
-    return Container(
-      padding: const EdgeInsets.all(18),
-
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-
-        border: isSelected
-            ? Border.all(color: const Color(0xff1565C0), width: 1.5)
-            : null,
-      ),
-
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 28,
-            backgroundColor: color,
-
-            child: Text(
-              student.name.isNotEmpty ? student.name[0].toUpperCase() : "?",
-
-              style: const TextStyle(color: Colors.white, fontSize: 22),
-            ),
-          ),
-
-          const SizedBox(width: 15),
+          const SizedBox(width: 11),
 
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-
               children: [
+                const Text(
+                  'Smart School',
+                  style: TextStyle(
+                    color: textMuted,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
                 Text(
-                  student.name,
-
+                  _parentDisplayName(parentData),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
+                    color: textDark,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
                   ),
                 ),
-
-                Text(_className(student)),
-
-                const SizedBox(height: 5),
-
-                Text(
-                  "Admission No: "
-                  "${student.admissionNo ?? '-'}",
-
-                  style: const TextStyle(color: Colors.grey, fontSize: 12),
-                ),
-
-                if (student.status != null)
-                  Text(
-                    "Status: ${student.status}",
-
-                    style: const TextStyle(fontSize: 12),
-                  ),
               ],
             ),
           ),
+        ],
+      ),
+      actions: [
+        Padding(
+          padding: const EdgeInsets.only(right: 14),
+          child: Container(
+            width: 43,
+            height: 43,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: border),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(.035),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                IconButton(
+                  onPressed: () {
+                    debugPrint(
+                      '🔔 Dashboard: Notification clicked',
+                    );
+                  },
+                  icon: const Icon(
+                    Icons.notifications_none_rounded,
+                    color: textDark,
+                    size: 22,
+                  ),
+                ),
 
+                Positioned(
+                  right: 6,
+                  top: 5,
+                  child: Container(
+                    width: 9,
+                    height: 9,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEF4444),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Colors.white,
+                        width: 1.5,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ===========================================================================
+  // WELCOME
+  // ===========================================================================
+
+  Widget _welcomeHeader(ParentResponse parentData) {
+    final firstName = _parentDisplayName(parentData)
+        .trim()
+        .split(' ')
+        .first;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Good Morning, $firstName 👋',
+                style: const TextStyle(
+                  color: textDark,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -.4,
+                ),
+              ),
+              const SizedBox(height: 5),
+              const Text(
+                'Stay connected with your child\'s school journey.',
+                style: TextStyle(
+                  color: textMuted,
+                  fontSize: 11.5,
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ===========================================================================
+  // SCHOOL BANNER
+  // ===========================================================================
+
+  Widget _schoolBanner() {
+    return Container(
+      height: 164,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            primary,
+            primaryDark,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: primary.withOpacity(.20),
+            blurRadius: 25,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: Stack(
+          children: [
+            Positioned(
+              right: -25,
+              top: -55,
+              child: Container(
+                width: 170,
+                height: 170,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(.07),
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+
+            Positioned(
+              right: 45,
+              bottom: -75,
+              child: Container(
+                width: 145,
+                height: 145,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(.045),
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+
+            Positioned(
+              left: 20,
+              bottom: -20,
+              child: Icon(
+                Icons.auto_stories_rounded,
+                size: 100,
+                color: Colors.white.withOpacity(.055),
+              ),
+            ),
+
+            Padding(
+              padding: const EdgeInsets.all(19),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 45,
+                        height: 45,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(.13),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(.15),
+                          ),
+                        ),
+                        child: const Icon(
+                          Icons.school_rounded,
+                          color: Colors.white,
+                          size: 23,
+                        ),
+                      ),
+
+                      const SizedBox(width: 11),
+
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'SCHOOL PORTAL',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 8.5,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                            SizedBox(height: 4),
+                            Text(
+                              'Smart School',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Text(
+                          'PARENT',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 8,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: .8,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const Spacer(),
+
+                  const Text(
+                    'Learning Today, Leading Tomorrow',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+
+                  const SizedBox(height: 4),
+
+                  const Text(
+                    'Everything about your child, in one place.',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 10.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ===========================================================================
+  // SELECTED STUDENT
+  // ===========================================================================
+
+  Widget _selectedStudentCard() {
+    final students = parent?.students ?? [];
+    final student = selectedStudent;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: _premiumCardDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Selected Child',
+                      style: TextStyle(
+                        color: textDark,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    SizedBox(height: 3),
+                    Text(
+                      'Currently viewing this student',
+                      style: TextStyle(
+                        color: textMuted,
+                        fontSize: 10.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              if (students.length > 1)
+                InkWell(
+                  onTap: _openStudentSelector,
+                  borderRadius: BorderRadius.circular(11),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEFF3FF),
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.swap_horiz_rounded,
+                          color: primary,
+                          size: 15,
+                        ),
+                        SizedBox(width: 4),
+                        Text(
+                          'Switch',
+                          style: TextStyle(
+                            color: primary,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+
+          const SizedBox(height: 13),
+
+          if (student == null)
+            _noSelectedStudent()
+          else
+            InkWell(
+              onTap: students.length > 1
+                  ? _openStudentSelector
+                  : null,
+              borderRadius: BorderRadius.circular(18),
+              child: Container(
+                padding: const EdgeInsets.all(13),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                    colors: [
+                      Color(0xFFF6F8FF),
+                      Color(0xFFFBFCFF),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: const Color(0xFFDDE4FA),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    _premiumStudentAvatar(
+                      student,
+                      radius: 27,
+                    ),
+
+                    const SizedBox(width: 12),
+
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            student.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: textDark,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+
+                          const SizedBox(height: 5),
+
+                          Text(
+                            _studentSubtitle(student),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: textMuted,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+
+                          const SizedBox(height: 7),
+
+                          Row(
+                            children: [
+                              _studentTag(
+                                Icons.badge_outlined,
+                                student.admissionNo ?? '-',
+                              ),
+                              if (student.status != null) ...[
+                                const SizedBox(width: 6),
+                                _studentTag(
+                                  Icons.verified_rounded,
+                                  student.status!,
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    if (students.length > 1)
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(11),
+                          border: Border.all(color: border),
+                        ),
+                        child: const Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          color: textDark,
+                          size: 21,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _noSelectedStudent() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF5F5),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFFFECACA),
+        ),
+      ),
+      child: const Row(
+        children: [
           Icon(
-            isSelected ? Icons.check_circle : Icons.arrow_forward_ios,
-
-            color: isSelected ? const Color(0xff1565C0) : Colors.grey,
+            Icons.person_off_rounded,
+            color: Color(0xFFDC2626),
+            size: 21,
+          ),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'No student is linked to this parent account.',
+              style: TextStyle(
+                color: Color(0xFFB91C1C),
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
         ],
       ),
     );
   }
 
-  // ============================================================
-  // CLASS NAME
-  // ============================================================
+  // ===========================================================================
+  // FEE REMINDER
+  // ===========================================================================
 
-  String _className(StudentResponse student) {
-    if (student.sectionName != null && student.sectionName!.trim().isNotEmpty) {
-      return student.sectionName!;
+  Widget _feeReminderCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(21),
+        border: Border.all(
+          color: const Color(0xFFF1E1BF),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(.035),
+            blurRadius: 18,
+            offset: const Offset(0, 7),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFF4DC),
+              borderRadius: BorderRadius.circular(15),
+            ),
+            child: const Icon(
+              Icons.account_balance_wallet_rounded,
+              color: Color(0xFFEA8A00),
+              size: 24,
+            ),
+          ),
+
+          const SizedBox(width: 12),
+
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Fee Status',
+                  style: TextStyle(
+                    color: textDark,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'Check your child\'s pending school fees',
+                  maxLines: 2,
+                  style: TextStyle(
+                    color: textMuted,
+                    fontSize: 10.5,
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(width: 8),
+
+          Flexible(
+            flex: 0,
+            child: Container(
+              constraints: const BoxConstraints(
+                minWidth: 74,
+              ),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 9,
+              ),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF8EA),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: const Color(0xFFF7D99A),
+                ),
+              ),
+              child: const Column(
+                children: [
+                  Text(
+                    'PENDING',
+                    style: TextStyle(
+                      color: Color(0xFFB76A00),
+                      fontSize: 7.5,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: .6,
+                    ),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    'View',
+                    style: TextStyle(
+                      color: Color(0xFFEA8A00),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(width: 8),
+
+          SizedBox(
+            height: 42,
+            child: ElevatedButton(
+              onPressed: selectedStudent == null
+                  ? null
+                  : () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => FeeDetailsScreen(
+                            student: selectedStudent!,
+                          ),
+                        ),
+                      );
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFEA8A00),
+                disabledBackgroundColor: const Color(0xFFE8E8E8),
+                foregroundColor: Colors.white,
+                disabledForegroundColor: Colors.grey,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 15,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(13),
+                ),
+              ),
+              child: const Text(
+                'View Fees',
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ===========================================================================
+  // DAILY TEST
+  // ===========================================================================
+
+  Widget _dailyTestSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionHeader(
+          title: 'Today\'s Learning',
+          subtitle: 'Keep your child engaged with daily practice',
+          icon: Icons.auto_awesome_rounded,
+        ),
+
+        const SizedBox(height: 12),
+
+        DailyTestCard(
+          test: McqTest.dummy(),
+          onStartTest: () {
+            debugPrint(
+              '📝 Dashboard: Daily MCQ test clicked',
+            );
+
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => DailyTestScreen(
+                  test: McqTest.dummy(),
+                ),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  // ===========================================================================
+  // MY CHILDREN
+  // ===========================================================================
+
+  Widget _studentCard(
+    StudentResponse student,
+    int index,
+  ) {
+    final isSelected = selectedStudent?.id == student.id;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(19),
+        border: Border.all(
+          color: isSelected ? primary : border,
+          width: isSelected ? 1.4 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: isSelected
+                ? primary.withOpacity(.08)
+                : Colors.black.withOpacity(.025),
+            blurRadius: isSelected ? 18 : 13,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          _premiumStudentAvatar(
+            student,
+            radius: 26,
+            index: index,
+          ),
+
+          const SizedBox(width: 12),
+
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  student.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: textDark,
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+
+                const SizedBox(height: 4),
+
+                Text(
+                  _studentSubtitle(student),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: textMuted,
+                    fontSize: 10.5,
+                  ),
+                ),
+
+                const SizedBox(height: 7),
+
+                _studentTag(
+                  Icons.badge_outlined,
+                  student.admissionNo ?? '-',
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(width: 8),
+
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? primary
+                  : const Color(0xFFF5F6F9),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(
+              isSelected
+                  ? Icons.check_rounded
+                  : Icons.chevron_right_rounded,
+              color: isSelected ? Colors.white : textMuted,
+              size: 20,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ===========================================================================
+  // QUICK ACTIONS
+  // ===========================================================================
+
+  Widget _quickActionsGrid() {
+    return GridView.count(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      crossAxisCount: 4,
+      crossAxisSpacing: 10,
+      mainAxisSpacing: 10,
+      childAspectRatio: .86,
+      children: [
+        _Quick(
+          Icons.calendar_month_rounded,
+          'Attendance',
+          color: const Color(0xFF3155D9),
+          onTap: selectedStudent == null
+              ? null
+              : () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => AttendanceScreen(
+                        student: selectedStudent!,
+                      ),
+                    ),
+                  );
+                },
+        ),
+
+        _Quick(
+          Icons.menu_book_rounded,
+          'Homework',
+          color: const Color(0xFF7C3AED),
+          onTap: () {
+            debugPrint('📚 Dashboard: Homework clicked');
+          },
+        ),
+
+        _Quick(
+          Icons.bar_chart_rounded,
+          'Results',
+          color: const Color(0xFF059669),
+          onTap: selectedStudent == null
+              ? null
+              : () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ResultsScreen(
+                        student: selectedStudent!,
+                      ),
+                    ),
+                  );
+                },
+        ),
+
+        _Quick(
+          Icons.currency_rupee_rounded,
+          'Fees',
+          color: const Color(0xFFEA8A00),
+          onTap: selectedStudent == null
+              ? null
+              : () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => FeeDetailsScreen(
+                        student: selectedStudent!,
+                      ),
+                    ),
+                  );
+                },
+        ),
+
+        _Quick(
+          Icons.schedule_rounded,
+          'Timetable',
+          color: const Color(0xFF0891B2),
+          onTap: () {
+            debugPrint(
+              '🕐 Dashboard: Timetable clicked',
+            );
+          },
+        ),
+
+        _Quick(
+          Icons.event_rounded,
+          'Events',
+          color: const Color(0xFFDB2777),
+          onTap: () {
+            debugPrint(
+              '📅 Dashboard: Events clicked',
+            );
+          },
+        ),
+
+        _Quick(
+          Icons.notifications_rounded,
+          'Notices',
+          color: const Color(0xFFDC2626),
+          onTap: selectedStudent == null
+              ? null
+              : () {
+                  debugPrint(
+                    '🔔 Dashboard: Notices clicked '
+                    '(Class: ${selectedStudent!.classId}, '
+                    'Section: ${selectedStudent!.sectionId})',
+                  );
+
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => NoticesScreen(
+                        classId: selectedStudent!.classId,
+                        sectionId: selectedStudent!.sectionId,
+                      ),
+                    ),
+                  );
+                },
+        ),
+
+        _Quick(
+          Icons.person_rounded,
+          'Profile',
+          color: const Color(0xFF475569),
+          onTap: () {
+            debugPrint(
+              '👤 Dashboard: Profile clicked',
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  // ===========================================================================
+  // HELPERS
+  // ===========================================================================
+
+  String _parentDisplayName(ParentResponse parent) {
+    if (parent.fatherName != null &&
+        parent.fatherName!.trim().isNotEmpty) {
+      return parent.fatherName!;
     }
 
-    return "Class information unavailable";
+    if (parent.motherName != null &&
+        parent.motherName!.trim().isNotEmpty) {
+      return parent.motherName!;
+    }
+
+    if (parent.guardianName != null &&
+        parent.guardianName!.trim().isNotEmpty) {
+      return parent.guardianName!;
+    }
+
+    return 'Parent';
+  }
+
+  String _studentSubtitle(StudentResponse student) {
+    final className = student.className?.trim() ?? '';
+    final section = student.sectionName?.trim() ?? '';
+
+    if (className.isNotEmpty && section.isNotEmpty) {
+      return '$className • Section $section';
+    }
+
+    if (className.isNotEmpty) {
+      return className;
+    }
+
+    if (section.isNotEmpty) {
+      return 'Section $section';
+    }
+
+    return 'Class information unavailable';
+  }
+
+  Widget _premiumStudentAvatar(
+    StudentResponse? student, {
+    double radius = 25,
+    int index = 0,
+  }) {
+    const colors = [
+      Color(0xFF3155D9),
+      Color(0xFF7C3AED),
+      Color(0xFF059669),
+      Color(0xFFEA8A00),
+    ];
+
+    final color = colors[index % colors.length];
+
+    final name = student?.name.trim() ?? '';
+
+    final initial = name.isNotEmpty
+        ? name.substring(0, 1).toUpperCase()
+        : '?';
+
+    return Container(
+      width: radius * 2,
+      height: radius * 2,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            color.withOpacity(.16),
+            color.withOpacity(.07),
+          ],
+        ),
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: color.withOpacity(.18),
+          width: 1,
+        ),
+      ),
+      child: Center(
+        child: Text(
+          initial,
+          style: TextStyle(
+            color: color,
+            fontSize: radius * .70,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _studentTag(
+    IconData icon,
+    String value,
+  ) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 7,
+        vertical: 4,
+      ),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F6F9),
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 10,
+            color: textMuted,
+          ),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: textMuted,
+                fontSize: 8.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sectionHeader({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+  }) {
+    return Row(
+      children: [
+        Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: const Color(0xFFEFF3FF),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(
+            icon,
+            color: primary,
+            size: 19,
+          ),
+        ),
+
+        const SizedBox(width: 10),
+
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  color: textDark,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: const TextStyle(
+                  color: textMuted,
+                  fontSize: 10,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _emptyChildren() {
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: _premiumCardDecoration(),
+      child: const Column(
+        children: [
+          Icon(
+            Icons.people_outline_rounded,
+            color: textMuted,
+            size: 35,
+          ),
+          SizedBox(height: 10),
+          Text(
+            'No children linked to this parent.',
+            style: TextStyle(
+              color: textMuted,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  BoxDecoration _premiumCardDecoration() {
+    return BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(21),
+      border: Border.all(
+        color: border,
+      ),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(.035),
+          blurRadius: 18,
+          offset: const Offset(0, 7),
+        ),
+      ],
+    );
+  }
+
+  Widget _loadingScreen() {
+    return Scaffold(
+      backgroundColor: background,
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 68,
+              height: 68,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [
+                    primary,
+                    primaryDark,
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(21),
+                boxShadow: [
+                  BoxShadow(
+                    color: primary.withOpacity(.18),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.school_rounded,
+                color: Colors.white,
+                size: 33,
+              ),
+            ),
+
+            const SizedBox(height: 18),
+
+            const Text(
+              'Loading Dashboard',
+              style: TextStyle(
+                color: textDark,
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+
+            const SizedBox(height: 11),
+
+            const SizedBox(
+              width: 110,
+              child: LinearProgressIndicator(
+                minHeight: 3,
+                color: primary,
+                backgroundColor: Color(0xFFE5E9F0),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _errorScreen() {
+    return Scaffold(
+      backgroundColor: background,
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: _premiumCardDecoration(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 68,
+                  height: 68,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFFFEEEE),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.cloud_off_rounded,
+                    color: Color(0xFFDC2626),
+                    size: 31,
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                const Text(
+                  'Unable to load dashboard',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: textDark,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+
+                const SizedBox(height: 8),
+
+                Text(
+                  errorMessage ?? 'Something went wrong.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: textMuted,
+                    fontSize: 12,
+                  ),
+                ),
+
+                const SizedBox(height: 18),
+
+                ElevatedButton.icon(
+                  onPressed: _loadParentProfile,
+                  icon: const Icon(
+                    Icons.refresh_rounded,
+                    size: 18,
+                  ),
+                  label: const Text(
+                    'Try Again',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primary,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(13),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
-// ================================================================
+// ==============================================================================
+// PREMIUM STUDENT SELECTOR
+// ==============================================================================
+
+class _PremiumStudentSelectorSheet extends StatelessWidget {
+  final List<StudentResponse> students;
+  final StudentResponse? selectedStudent;
+
+  const _PremiumStudentSelectorSheet({
+    required this.students,
+    required this.selectedStudent,
+  });
+
+  static const Color primary = Color(0xFF3155D9);
+  static const Color primaryDark = Color(0xFF2343B8);
+
+  static const Color textDark = Color(0xFF172033);
+  static const Color textMuted = Color(0xFF697386);
+  static const Color border = Color(0xFFE5E9F0);
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Container(
+        constraints: const BoxConstraints(
+          maxHeight: 680,
+        ),
+        decoration: const BoxDecoration(
+          color: Color(0xFFF7F9FC),
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(30),
+          ),
+        ),
+        child: Column(
+          children: [
+            const SizedBox(height: 10),
+
+            Container(
+              width: 42,
+              height: 5,
+              decoration: BoxDecoration(
+                color: const Color(0xFFD4D9E2),
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                20,
+                20,
+                16,
+                16,
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [
+                          primary,
+                          primaryDark,
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    child: const Icon(
+                      Icons.people_alt_rounded,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  ),
+
+                  const SizedBox(width: 12),
+
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Choose Student',
+                          style: TextStyle(
+                            color: textDark,
+                            fontSize: 19,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        SizedBox(height: 3),
+                        Text(
+                          'Select the child you want to view',
+                          style: TextStyle(
+                            color: textMuted,
+                            fontSize: 10.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  IconButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                    },
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.white,
+                    ),
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: textMuted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            Expanded(
+              child: ListView.separated(
+                padding: const EdgeInsets.fromLTRB(
+                  16,
+                  2,
+                  16,
+                  22,
+                ),
+                itemCount: students.length,
+                separatorBuilder: (_, __) =>
+                    const SizedBox(height: 10),
+                itemBuilder: (context, index) {
+                  final student = students[index];
+
+                  final isSelected =
+                      selectedStudent?.id == student.id;
+
+                  return _selectorStudentCard(
+                    context,
+                    student,
+                    index,
+                    isSelected,
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _selectorStudentCard(
+    BuildContext context,
+    StudentResponse student,
+    int index,
+    bool isSelected,
+  ) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(21),
+      onTap: () {
+        Navigator.pop(context, student);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? const Color(0xFFF0F4FF)
+              : Colors.white,
+          borderRadius: BorderRadius.circular(21),
+          border: Border.all(
+            color: isSelected ? primary : border,
+            width: isSelected ? 1.5 : 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: isSelected
+                  ? primary.withOpacity(.08)
+                  : Colors.black.withOpacity(.025),
+              blurRadius: isSelected ? 18 : 12,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            _avatar(student, index),
+
+            const SizedBox(width: 13),
+
+            Expanded(
+              child: Column(
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          student.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: textDark,
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+
+                      if (isSelected) ...[
+                        const SizedBox(width: 7),
+                        Container(
+                          padding:
+                              const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: primary,
+                            borderRadius:
+                                BorderRadius.circular(6),
+                          ),
+                          child: const Text(
+                            'SELECTED',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 7,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: .5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+
+                  const SizedBox(height: 5),
+
+                  Text(
+                    _subtitle(student),
+                    style: const TextStyle(
+                      color: textMuted,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+
+                  const SizedBox(height: 9),
+
+                  Row(
+                    children: [
+                      _smallInfo(
+                        Icons.badge_outlined,
+                        student.admissionNo ?? '-',
+                      ),
+
+                      if (student.status != null) ...[
+                        const SizedBox(width: 6),
+                        _smallInfo(
+                          Icons.verified_rounded,
+                          student.status!,
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(width: 8),
+
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? primary
+                    : const Color(0xFFF5F6F9),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                isSelected
+                    ? Icons.check_rounded
+                    : Icons.arrow_forward_ios_rounded,
+                color:
+                    isSelected ? Colors.white : textMuted,
+                size: isSelected ? 20 : 13,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _subtitle(StudentResponse student) {
+    final className = student.className?.trim() ?? '';
+    final section = student.sectionName?.trim() ?? '';
+
+    if (className.isNotEmpty && section.isNotEmpty) {
+      return '$className • Section $section';
+    }
+
+    if (className.isNotEmpty) {
+      return className;
+    }
+
+    if (section.isNotEmpty) {
+      return 'Section $section';
+    }
+
+    return 'Class information unavailable';
+  }
+
+  static Widget _avatar(
+    StudentResponse student,
+    int index,
+  ) {
+    const colors = [
+      Color(0xFF3155D9),
+      Color(0xFF7C3AED),
+      Color(0xFF059669),
+      Color(0xFFEA8A00),
+    ];
+
+    final color = colors[index % colors.length];
+
+    final name = student.name.trim();
+
+    final initial = name.isNotEmpty
+        ? name.substring(0, 1).toUpperCase()
+        : '?';
+
+    return Container(
+      width: 56,
+      height: 56,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            color.withOpacity(.16),
+            color.withOpacity(.07),
+          ],
+        ),
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: color.withOpacity(.16),
+        ),
+      ),
+      child: Center(
+        child: Text(
+          initial,
+          style: TextStyle(
+            color: color,
+            fontSize: 20,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
+    );
+  }
+
+  static Widget _smallInfo(
+    IconData icon,
+    String value,
+  ) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 7,
+        vertical: 4,
+      ),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F6F9),
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 10,
+            color: textMuted,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: textMuted,
+              fontSize: 8.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ==============================================================================
 // QUICK ACTION
-// ================================================================
+// ==============================================================================
 
 class _Quick extends StatelessWidget {
   final IconData icon;
   final String title;
+  final Color color;
   final VoidCallback? onTap;
 
-  const _Quick(this.icon, this.title, {this.onTap});
+  const _Quick(
+    this.icon,
+    this.title, {
+    required this.color,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final enabled = onTap != null;
+
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-        ),
-
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-
-          children: [
-            Icon(icon, color: const Color(0xff1565C0)),
-
-            const SizedBox(height: 8),
-
-            Text(
-              title,
-              textAlign: TextAlign.center,
-
-              style: const TextStyle(fontSize: 12),
+      borderRadius: BorderRadius.circular(18),
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 150),
+        opacity: enabled ? 1 : .42,
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 5,
+            vertical: 9,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: const Color(0xFFE5E9F0),
             ),
-          ],
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(.025),
+                blurRadius: 13,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 41,
+                height: 41,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      color.withOpacity(.15),
+                      color.withOpacity(.07),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: Icon(
+                  icon,
+                  color: color,
+                  size: 21,
+                ),
+              ),
+
+              const SizedBox(height: 8),
+
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Color(0xFF172033),
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
