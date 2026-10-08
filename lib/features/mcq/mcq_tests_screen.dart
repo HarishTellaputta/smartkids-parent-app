@@ -159,9 +159,13 @@ class _McqTestsScreenState extends State<McqTestsScreen> {
       // FILTER AVAILABLE TESTS
       // ==========================================================
 
+      // final visibleTests = loadedTests
+      //     // 12 PM onwards
+      //     .where((test) => _isPMTest(test.startTime))
+      //     // Remove already submitted tests
+      //     .where((test) => !submittedTestIds.contains(test.id))
+      //     .toList();
       final visibleTests = loadedTests
-          // 12 PM onwards
-          .where((test) => _isPMTest(test.startTime))
           // Remove already submitted tests
           .where((test) => !submittedTestIds.contains(test.id))
           .toList();
@@ -398,6 +402,11 @@ class _McqTestsScreenState extends State<McqTestsScreen> {
       return _buildEmpty();
     }
 
+    final visibleTests = tests.where((test) {
+      return test.className?.trim().toLowerCase() ==
+          widget.student.className?.trim().toLowerCase();
+    }).toList();
+
     return RefreshIndicator(
       color: primary,
       backgroundColor: Colors.white,
@@ -416,13 +425,14 @@ class _McqTestsScreenState extends State<McqTestsScreen> {
 
           const SizedBox(height: 13),
 
-          ...tests.map((test) => _buildTestCard(test)),
+          if (visibleTests.isEmpty)
+            _buildEmpty()
+          else
+            ...visibleTests.map((test) => _buildTestCard(test)),
         ],
       ),
     );
-  }
-
-  // ============================================================
+  } // ============================================================
   // STUDENT HEADER
   // ============================================================
 

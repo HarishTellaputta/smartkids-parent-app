@@ -6,6 +6,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:parent_app/models/mcq_attempt.dart';
 import 'package:parent_app/models/mcq_test.dart';
 import 'package:parent_app/models/student_response.dart';
+import 'package:parent_app/models/mcq_question.dart';
 import 'package:parent_app/services/api_service.dart';
 import 'package:parent_app/services/mcq_service.dart';
 
@@ -27,6 +28,10 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
   static const Color textMuted = Color(0xff697386);
   static const Color border = Color(0xffE5E9F0);
 
+  // ============================================================
+  // TEST STATE
+  // ============================================================
+
   McqAttempt? attempt;
 
   int currentQuestionIndex = 0;
@@ -35,6 +40,7 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
 
   Timer? _timer;
 
+  /// Remaining seconds for the current attempt.
   int remainingSeconds = 0;
 
   bool isStartingTest = false;
@@ -43,6 +49,8 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
 
   bool testStarted = false;
   bool testSubmitted = false;
+
+  /// True only when the timer itself submits the test.
   bool autoSubmitted = false;
 
   String? errorMessage;
@@ -51,72 +59,30 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
   int resultTotal = 0;
   double resultPercentage = 0;
 
+  // ============================================================
+  // INIT
+  // ============================================================
+
   @override
   void initState() {
     super.initState();
   }
 
   // ============================================================
-  // TIME PARSER
-  // ============================================================
-
-  TimeOfDay? _parseStartTime(String value) {
-    final raw = value.trim();
-
-    if (raw.isEmpty) return null;
-
-    final match = RegExp(
-      r'^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AaPp][Mm])?$',
-    ).firstMatch(raw);
-
-    if (match == null) return null;
-
-    int hour = int.tryParse(match.group(1) ?? '') ?? -1;
-    final minute = int.tryParse(match.group(2) ?? '') ?? -1;
-    final period = match.group(4)?.toUpperCase();
-
-    if (minute < 0 || minute > 59) return null;
-
-    if (period != null) {
-      if (hour < 1 || hour > 12) return null;
-
-      if (period == 'AM') {
-        if (hour == 12) {
-          hour = 0;
-        }
-      } else {
-        if (hour != 12) {
-          hour += 12;
-        }
-      }
-    } else {
-      if (hour < 0 || hour > 23) return null;
-    }
-
-    return TimeOfDay(hour: hour, minute: minute);
-  }
-
-  bool get _isBeforeNoonSchedule {
-    final time = _parseStartTime(widget.test.startTime);
-
-    if (time == null) {
-      return false;
-    }
-
-    // 12:00 AM - 11:59 AM => unavailable
-    // 12:00 PM - 11:59 PM => available
-    return time.hour < 12;
-  }
-
-  // ============================================================
   // QUESTIONS
   // ============================================================
 
-  List<dynamic> get questions => widget.test.questions;
+  List<McqQuestion> get questions {
+    // After starting, backend should return the actual questions
+    // inside attempt.test.questions.
+    //
+    // Before starting, use widget.test.questions.
+    return attempt?.test?.questions ?? widget.test.questions;
+  }
 
   int get totalQuestions => questions.length;
 
-  dynamic get currentQuestion {
+  McqQuestion? get currentQuestion {
     if (questions.isEmpty) return null;
 
     if (currentQuestionIndex >= questions.length) {
@@ -141,9 +107,9 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
   // ============================================================
 
   Future<void> startTest() async {
-    if (_isBeforeNoonSchedule) return;
-
-    if (isStartingTest) return;
+    if (isStartingTest || testStarted || testSubmitted) {
+      return;
+    }
 
     setState(() {
       isStartingTest = true;
@@ -165,6 +131,17 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
           attempt = McqAttempt.fromJson(data);
         }
 
+        // --------------------------------------------------------
+        // IMPORTANT:
+        // Backend should create:
+        //
+        // startedAt = current time
+        // expiresAt = current time + 30 minutes
+        //
+        // If expiresAt is available, we use it.
+        // Otherwise fallback to exactly 30 minutes.
+        // --------------------------------------------------------
+
         _calculateRemainingTime();
 
         setState(() {
@@ -184,30 +161,36 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
 
       setState(() {
         isStartingTest = false;
-        errorMessage = 'Failed to start test.';
+        errorMessage = 'Failed to start test. Please try again.';
       });
     }
   }
 
   // ============================================================
-  // TIMER
+  // TIMER CALCULATION
   // ============================================================
 
   void _calculateRemainingTime() {
-    final startedAttempt = attempt;
+    final expiresAt = attempt?.expiresAt;
 
-    if (startedAttempt?.expiresAt != null) {
+    if (expiresAt != null) {
       final now = DateTime.now();
 
-      final difference = startedAttempt!.expiresAt!.toLocal().difference(now);
+      final difference = expiresAt.toLocal().difference(now);
 
       remainingSeconds = difference.inSeconds > 0 ? difference.inSeconds : 0;
 
       return;
     }
 
-    remainingSeconds = widget.test.duration > 0 ? widget.test.duration * 60 : 0;
+    // Exact requirement:
+    // Every attempt gets maximum 30 minutes.
+    remainingSeconds = 30 * 60;
   }
+
+  // ============================================================
+  // START TIMER
+  // ============================================================
 
   void _startTimer() {
     _timer?.cancel();
@@ -237,6 +220,10 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
     });
   }
 
+  // ============================================================
+  // FORMATTED TIMER
+  // ============================================================
+
   String get formattedTime {
     final minutes = (remainingSeconds ~/ 60).toString().padLeft(2, '0');
 
@@ -265,12 +252,13 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
     if (isAnswering ||
         isSubmittingTest ||
         testSubmitted ||
+        remainingSeconds <= 0 ||
         currentQuestion == null ||
         attempt?.attemptId == null) {
       return;
     }
 
-    final questionId = int.tryParse(currentQuestion.id.toString());
+    final questionId = int.tryParse(currentQuestion!.id.toString());
 
     if (questionId == null) return;
 
@@ -324,6 +312,20 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
   }
 
   // ============================================================
+  // AUTO SUBMIT
+  // ============================================================
+
+  Future<void> _autoSubmitTest() async {
+    if (testSubmitted || isSubmittingTest || attempt?.attemptId == null) {
+      return;
+    }
+
+    autoSubmitted = true;
+
+    await _submitTest();
+  }
+
+  // ============================================================
   // SUBMIT CONFIRMATION
   // ============================================================
 
@@ -360,8 +362,8 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
                 Container(
                   height: 64,
                   width: 64,
-                  decoration: BoxDecoration(
-                    color: const Color(0xffEEF2FF),
+                  decoration: const BoxDecoration(
+                    color: Color(0xffEEF2FF),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
@@ -508,29 +510,10 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
   }
 
   // ============================================================
-  // AUTO SUBMIT
-  // ============================================================
-
-  Future<void> _autoSubmitTest() async {
-    if (testSubmitted || isSubmittingTest || attempt?.attemptId == null) {
-      return;
-    }
-
-    autoSubmitted = true;
-
-    await _submitTest(showConfirmation: false);
-  }
-
-  // ============================================================
   // SUBMIT TEST
   // ============================================================
 
-  Future<void> _submitTest({bool showConfirmation = false}) async {
-    if (showConfirmation) {
-      _showSubmitConfirmation();
-      return;
-    }
-
+  Future<void> _submitTest() async {
     if (isSubmittingTest || testSubmitted || attempt?.attemptId == null) {
       return;
     }
@@ -560,8 +543,7 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
 
             resultScore = completedAttempt.score ?? 0;
 
-            resultTotal =
-                completedAttempt.totalQuestions ?? widget.test.questions.length;
+            resultTotal = completedAttempt.totalQuestions ?? totalQuestions;
 
             resultPercentage = completedAttempt.percentage ?? 0;
           } catch (_) {
@@ -572,7 +554,7 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
         }
 
         if (resultTotal <= 0) {
-          resultTotal = widget.test.questions.length;
+          resultTotal = totalQuestions;
         }
 
         setState(() {
@@ -597,12 +579,20 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
     }
   }
 
+  // ============================================================
+  // LOCAL RESULT FALLBACK
+  // ============================================================
+
   void _calculateLocalResult() {
     resultScore = selectedAnswers.length;
-    resultTotal = widget.test.questions.length;
+    resultTotal = totalQuestions;
 
     resultPercentage = resultTotal == 0 ? 0 : (resultScore / resultTotal) * 100;
   }
+
+  // ============================================================
+  // ERROR
+  // ============================================================
 
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -621,9 +611,14 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isBeforeNoonSchedule) {
-      return _buildTestUnavailableScreen();
-    }
+    // IMPORTANT:
+    // No start-time restriction here.
+    //
+    // Test availability should be controlled from the test list:
+    // 1. Scheduled date must be today.
+    // 2. Student class must match test class.
+    //
+    // Once user opens this screen, they can start anytime today.
 
     if (isSubmittingTest) {
       return _buildSubmittingScreen();
@@ -638,157 +633,6 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
     }
 
     return _buildTestScreen();
-  }
-
-  // ============================================================
-  // UNAVAILABLE SCREEN
-  // ============================================================
-
-  Widget _buildTestUnavailableScreen() {
-    return Scaffold(
-      backgroundColor: background,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        foregroundColor: textDark,
-        title: const Text(
-          'Daily Test',
-          style: TextStyle(fontWeight: FontWeight.w800),
-        ),
-        centerTitle: true,
-      ),
-      body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(26),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(28),
-                border: Border.all(color: border),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.04),
-                    blurRadius: 25,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    height: 82,
-                    width: 82,
-                    decoration: BoxDecoration(
-                      color: const Color(0xffFFF7E6),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.schedule_rounded,
-                      color: Color(0xffF59E0B),
-                      size: 40,
-                    ),
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  const Text(
-                    'Test Not Available',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 23,
-                      fontWeight: FontWeight.w800,
-                      color: textDark,
-                    ),
-                  ),
-
-                  const SizedBox(height: 8),
-
-                  Text(
-                    widget.test.subject,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: primary,
-                    ),
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 15,
-                      vertical: 11,
-                    ),
-                    decoration: BoxDecoration(
-                      color: background,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.access_time_rounded,
-                          size: 18,
-                          color: textMuted,
-                        ),
-                        const SizedBox(width: 7),
-                        Text(
-                          'Scheduled: ${widget.test.startTime}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: textDark,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 18),
-
-                  const Text(
-                    'Tests scheduled from 12:00 PM onwards are not available here.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 13,
-                      height: 1.5,
-                      color: textMuted,
-                    ),
-                  ),
-
-                  const SizedBox(height: 25),
-
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: primary,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(vertical: 15),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                      ),
-                      child: const Text(
-                        'Go Back',
-                        style: TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
   }
 
   // ============================================================
@@ -874,6 +718,10 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
       ),
     );
   }
+
+  // ============================================================
+  // HERO
+  // ============================================================
 
   Widget _premiumTestHero() {
     return Container(
@@ -975,10 +823,7 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
                     '$totalQuestions Questions',
                   ),
                   const SizedBox(width: 10),
-                  _heroMiniInfo(
-                    Icons.timer_outlined,
-                    '${widget.test.duration} Min',
-                  ),
+                  _heroMiniInfo(Icons.timer_outlined, '30 Min'),
                 ],
               ),
             ],
@@ -1012,6 +857,10 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
     );
   }
 
+  // ============================================================
+  // TEST INFO
+  // ============================================================
+
   Widget _testInfoCard() {
     return _whiteCard(
       child: Column(
@@ -1020,17 +869,9 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
           const Divider(height: 22, color: border),
           _infoRow(Icons.calendar_today_rounded, 'Date', widget.test.date),
           const Divider(height: 22, color: border),
-          _infoRow(
-            Icons.access_time_rounded,
-            'Start Time',
-            widget.test.startTime,
-          ),
+          _infoRow(Icons.access_time_rounded, 'Available From', '12:00 AM'),
           const Divider(height: 22, color: border),
-          _infoRow(
-            Icons.timer_rounded,
-            'Duration',
-            '${widget.test.duration} minutes',
-          ),
+          _infoRow(Icons.timer_rounded, 'Attempt Time', '30 minutes'),
         ],
       ),
     );
@@ -1071,6 +912,10 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
     );
   }
 
+  // ============================================================
+  // INSTRUCTIONS
+  // ============================================================
+
   Widget _instructionsCard() {
     return _whiteCard(
       child: Column(
@@ -1087,7 +932,7 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
           const SizedBox(height: 14),
           _instruction(
             Icons.timer_outlined,
-            'Complete the test within the given time.',
+            'Once started, you have 30 minutes to complete the test.',
           ),
           _instruction(
             Icons.touch_app_rounded,
@@ -1099,7 +944,7 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
           ),
           _instruction(
             Icons.lock_outline_rounded,
-            'Once submitted, your answers cannot be changed.',
+            'When time reaches zero, the test is submitted automatically.',
           ),
         ],
       ),
@@ -1128,6 +973,10 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
       ),
     );
   }
+
+  // ============================================================
+  // INLINE ERROR
+  // ============================================================
 
   Widget _inlineError() {
     return Container(
@@ -1164,13 +1013,13 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
 
   Widget _buildTestScreen() {
     if (currentQuestion == null) {
-      return Scaffold(
+      return const Scaffold(
         backgroundColor: background,
-        body: const Center(child: Text('No questions available.')),
+        body: Center(child: Text('No questions available.')),
       );
     }
 
-    final questionId = int.tryParse(currentQuestion.id.toString());
+    final questionId = int.tryParse(currentQuestion!.id.toString());
 
     final selectedAnswer = questionId == null
         ? null
@@ -1237,6 +1086,10 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
     );
   }
 
+  // ============================================================
+  // TIMER BADGE
+  // ============================================================
+
   Widget _timerBadge() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -1261,6 +1114,10 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
       ),
     );
   }
+
+  // ============================================================
+  // QUESTION PROGRESS
+  // ============================================================
 
   Widget _questionProgress() {
     return Container(
@@ -1304,6 +1161,10 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
     );
   }
 
+  // ============================================================
+  // QUESTION HEADER
+  // ============================================================
+
   Widget _questionHeader() {
     return Row(
       children: [
@@ -1325,24 +1186,25 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
         ),
         const Spacer(),
         Text(
-          '${totalQuestions} Questions',
+          '$totalQuestions Questions',
           style: const TextStyle(fontSize: 11, color: textMuted),
         ),
       ],
     );
   }
 
-  Widget _questionCard({required String? selectedAnswer}) {
-    final questionText =
-        currentQuestion.questionText?.toString() ??
-        currentQuestion.question?.toString() ??
-        '';
+  // ============================================================
+  // QUESTION CARD
+  // ============================================================
 
-    final options = <String?>[
-      currentQuestion.optionA?.toString(),
-      currentQuestion.optionB?.toString(),
-      currentQuestion.optionC?.toString(),
-      currentQuestion.optionD?.toString(),
+  Widget _questionCard({required String? selectedAnswer}) {
+    final questionText = currentQuestion!.question;
+
+    final options = <String>[
+      currentQuestion!.optionA,
+      currentQuestion!.optionB,
+      currentQuestion!.optionC,
+      currentQuestion!.optionD,
     ];
 
     return _whiteCard(
@@ -1365,7 +1227,7 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
           ...List.generate(options.length, (index) {
             final option = options[index];
 
-            if (option == null || option.trim().isEmpty) {
+            if (option.trim().isEmpty) {
               return const SizedBox.shrink();
             }
 
@@ -1384,11 +1246,11 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
           }),
 
           if (isAnswering)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
+            const Padding(
+              padding: EdgeInsets.only(top: 4),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: const [
+                children: [
                   SizedBox(
                     height: 14,
                     width: 14,
@@ -1409,6 +1271,10 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
       ),
     );
   }
+
+  // ============================================================
+  // OPTION
+  // ============================================================
 
   Widget _optionTile({
     required String letter,
@@ -1686,7 +1552,7 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
   }
 
   // ============================================================
-  // SUBMITTING
+  // SUBMITTING SCREEN
   // ============================================================
 
   Widget _buildSubmittingScreen() {
@@ -1702,10 +1568,8 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
                 Container(
                   height: 92,
                   width: 92,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [primaryDark, primary],
-                    ),
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(colors: [primaryDark, primary]),
                     shape: BoxShape.circle,
                   ),
                   child: const Padding(
@@ -1829,6 +1693,10 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
     );
   }
 
+  // ============================================================
+  // ACHIEVEMENT TOP
+  // ============================================================
+
   Widget _achievementTop() {
     return Column(
       children: [
@@ -1880,7 +1748,7 @@ class _DailyTestScreenState extends State<DailyTestScreen> {
   }
 
   // ============================================================
-  // SHAREABLE ACHIEVEMENT CARD
+  // ACHIEVEMENT SHARE CARD
   // ============================================================
 
   Widget _achievementShareCard({
@@ -2340,6 +2208,10 @@ Keep Learning • Keep Growing • Keep Shining 🌟
       child: child,
     );
   }
+
+  // ============================================================
+  // DISPOSE
+  // ============================================================
 
   @override
   void dispose() {
