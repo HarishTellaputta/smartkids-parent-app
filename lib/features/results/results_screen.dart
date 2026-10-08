@@ -188,7 +188,21 @@ class _ResultsScreenState extends State<ResultsScreen> {
 
         final maxMarks = _toDouble(result['maxMarks']);
 
-        final resultPercentage = _toDouble(result['percentage']);
+        final backendPercentage = _toDouble(result['percentage']);
+
+        final resultPercentage = backendPercentage > 0
+            ? backendPercentage
+            : (maxMarks > 0 ? (marks / maxMarks) * 100 : 0);
+
+        debugPrint(
+          '📊 SUBJECT RESULT → '
+          'scheduleId=$scheduleId | '
+          'subject=${schedule?['subjectName'] ?? result['subjectName']} | '
+          'marks=$marks | '
+          'maxMarks=$maxMarks | '
+          'percentage=$resultPercentage | '
+          'backendGrade=${result['grade']}',
+        );
 
         final examinationName =
             schedule?['examinationName'] ??
@@ -622,10 +636,12 @@ class _ResultsScreenState extends State<ResultsScreen> {
         ? 'Student'
         : widget.student.name.trim();
 
-    final classText =
-        widget.student.className ??
-        widget.student.sectionName ??
-        'Class information unavailable';
+    final classText = [
+      if (widget.student.className?.trim().isNotEmpty == true)
+        widget.student.className!.trim(),
+      if (widget.student.sectionName?.trim().isNotEmpty == true)
+        'Section ${widget.student.sectionName!.trim()}',
+    ].join(' • ');
 
     return Container(
       width: double.infinity,
@@ -1452,7 +1468,9 @@ class _ResultsScreenState extends State<ResultsScreen> {
 
     final scoreColor = _scoreColor(safePercentage);
 
-    final grade = result['grade']?.toString() ?? '-';
+    final backendGrade = result['grade']?.toString();
+
+    final grade = _getSubjectGrade(safePercentage, backendGrade: backendGrade);
 
     final subject = result['subjectName']?.toString() ?? 'Subject';
 
@@ -1591,6 +1609,36 @@ class _ResultsScreenState extends State<ResultsScreen> {
         ],
       ),
     );
+  }
+
+  String _getSubjectGrade(double percentage, {String? backendGrade}) {
+    // If backend already provides grade, use it.
+    if (backendGrade != null &&
+        backendGrade.trim().isNotEmpty &&
+        backendGrade.trim() != '-') {
+      return backendGrade.trim();
+    }
+
+    // Otherwise calculate from grade rules.
+    if (gradeRules.isNotEmpty) {
+      for (final rule in gradeRules) {
+        final minimum = _toDouble(rule['minimumPercentage']);
+        final maximum = _toDouble(rule['maximumPercentage']);
+
+        if (percentage >= minimum && percentage <= maximum) {
+          return rule['grade']?.toString() ?? '-';
+        }
+      }
+    }
+
+    // Fallback
+    if (percentage >= 90) return 'A+';
+    if (percentage >= 80) return 'A';
+    if (percentage >= 70) return 'B+';
+    if (percentage >= 60) return 'B';
+    if (percentage >= 50) return 'C';
+
+    return 'F';
   }
 
   Widget _resultInfo(IconData icon, String value, String title) {

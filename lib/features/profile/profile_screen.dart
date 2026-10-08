@@ -9,7 +9,7 @@ import 'package:parent_app/storage/local_storage.dart';
 
 import 'package:parent_app/features/auth/login/change_password_screen.dart';
 import 'package:parent_app/features/auth/login/login_screen.dart';
-
+import 'package:parent_app/models/student_response.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -426,7 +426,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _studentCard(dynamic student) {
+Widget _studentCard(StudentResponse student) {
     final name = _studentName(student);
     final className = _studentClass(student);
     final section = _studentSection(student);
@@ -992,12 +992,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final p = parent;
     if (p == null) return 'Parent';
 
-    try {
-      final value = (p as dynamic).name;
-      return value?.toString().trim().isNotEmpty == true
-          ? value.toString()
-          : 'Parent';
-    } catch (_) {}
+    final father = p.fatherName?.trim();
+    if (father != null && father.isNotEmpty) {
+      return father;
+    }
+
+    final mother = p.motherName?.trim();
+    if (mother != null && mother.isNotEmpty) {
+      return mother;
+    }
+
+    final guardian = p.guardianName?.trim();
+    if (guardian != null && guardian.isNotEmpty) {
+      return guardian;
+    }
 
     return 'Parent';
   }
@@ -1007,7 +1015,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (p == null) return '';
 
     try {
-      final value = (p as dynamic).phone;
+      final value = (p as dynamic).contactPhone;
       return value?.toString() ?? '';
     } catch (_) {}
 
@@ -1019,7 +1027,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (p == null) return '';
 
     try {
-      final value = (p as dynamic).email;
+      final value = (p as dynamic).contactEmail;
       return value?.toString() ?? '';
     } catch (_) {}
 
@@ -1050,47 +1058,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return '';
   }
 
-  List<dynamic> _students() {
-    final p = parent;
-    if (p == null) return [];
+List<StudentResponse> _students() {
+  return parent?.students ?? [];
+}
 
-    try {
-      final value = (p as dynamic).students;
+String _studentName(StudentResponse student) {
+  return student.name.trim().isNotEmpty ? student.name.trim() : 'Student';
+}
 
-      if (value is List) {
-        return value;
-      }
-    } catch (_) {}
+String _studentClass(StudentResponse student) {
+  return student.className?.trim() ?? '';
+}
 
-    return [];
-  }
-
-  String _studentName(dynamic student) {
-    try {
-      final value = student.name;
-      return value?.toString() ?? 'Student';
-    } catch (_) {
-      return 'Student';
-    }
-  }
-
-  String _studentClass(dynamic student) {
-    try {
-      final value = student.className;
-      return value?.toString() ?? '';
-    } catch (_) {
-      return '';
-    }
-  }
-
-  String _studentSection(dynamic student) {
-    try {
-      final value = student.section;
-      return value?.toString() ?? '';
-    } catch (_) {
-      return '';
-    }
-  }
+String _studentSection(StudentResponse student) {
+  return student.sectionName?.trim() ?? '';
+}
 
   // ============================================================
   // DIVIDER

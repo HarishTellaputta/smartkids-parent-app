@@ -3,19 +3,17 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'package:parent_app/services/api_service.dart';
 import 'package:parent_app/services/auth_service.dart';
+import 'reset_password_screen.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({super.key});
 
   @override
-  State<ForgotPasswordScreen> createState() =>
-      _ForgotPasswordScreenState();
+  State<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
 }
 
-class _ForgotPasswordScreenState
-    extends State<ForgotPasswordScreen> {
-  final TextEditingController emailController =
-      TextEditingController();
+class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
+  final TextEditingController emailController = TextEditingController();
 
   bool isLoading = false;
 
@@ -30,18 +28,12 @@ class _ForgotPasswordScreenState
     final email = emailController.text.trim();
 
     if (email.isEmpty) {
-      _showMessage(
-        'Please enter your email address',
-        isError: true,
-      );
+      _showMessage('Please enter your email address', isError: true);
       return;
     }
 
     if (!email.contains('@')) {
-      _showMessage(
-        'Please enter a valid email address',
-        isError: true,
-      );
+      _showMessage('Please enter a valid email address', isError: true);
       return;
     }
 
@@ -50,45 +42,50 @@ class _ForgotPasswordScreenState
     });
 
     try {
-      final response = await AuthService.forgotPassword(
-        email: email,
-      );
+      final response = await AuthService.forgotPassword(email: email);
 
       if (!mounted) return;
 
-      final data = ApiService.decodeResponse(response);
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          String responseText = response.body.trim();
 
-      if (response.statusCode >= 200 &&
-          response.statusCode < 300) {
-        final message = data is String
-            ? data
-            : data is Map && data['message'] != null
-                ? data['message'].toString()
-                : 'Password reset instructions have been sent.';
+          const prefix = 'Password reset token generated:';
 
-        _showMessage(
-          message,
-          isError: false,
-        );
+          String token = responseText;
 
-        /*
-         * IMPORTANT:
-         *
-         * Your backend currently returns String.
-         * If it returns a reset TOKEN directly,
-         * we can navigate automatically to
-         * ResetPasswordScreen.
-         *
-         * For now we don't assume the response
-         * contains a token.
-         */
+          if (responseText.startsWith(prefix)) {
+            token = responseText.substring(prefix.length).trim();
+          }
+
+          if (token.isEmpty) {
+            _showMessage('Reset token was not received', isError: true);
+            return;
+          }
+
+          if (!mounted) return;
+
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ResetPasswordScreen(token: token),
+            ),
+          );
+        } else {
+          _showMessage(
+            response.body.isNotEmpty
+                ? response.body
+                : 'Unable to process request',
+            isError: true,
+          );
+        }
       } else {
-        final message = data is Map && data['message'] != null
-            ? data['message'].toString()
-            : 'Unable to process password reset request.';
+        final message = response.toString();
 
         _showMessage(
-          message,
+          message.isNotEmpty
+              ? message
+              : 'Unable to process password reset request.',
           isError: true,
         );
       }
@@ -110,10 +107,7 @@ class _ForgotPasswordScreenState
     }
   }
 
-  void _showMessage(
-    String message, {
-    bool isError = false,
-  }) {
+  void _showMessage(String message, {bool isError = false}) {
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -141,13 +135,10 @@ class _ForgotPasswordScreenState
         ),
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        backgroundColor:
-            isError
-                ? const Color(0xffD93025)
-                : const Color(0xff188038),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-        ),
+        backgroundColor: isError
+            ? const Color(0xffD93025)
+            : const Color(0xff188038),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
     );
   }
@@ -177,12 +168,7 @@ class _ForgotPasswordScreenState
       ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(
-            20,
-            20,
-            20,
-            30,
-          ),
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 30),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -252,35 +238,24 @@ class _ForgotPasswordScreenState
                 },
                 decoration: InputDecoration(
                   hintText: 'Enter your registered email',
-                  prefixIcon: const Icon(
-                    Icons.email_outlined,
-                    color: primary,
-                  ),
+                  prefixIcon: const Icon(Icons.email_outlined, color: primary),
                   filled: true,
                   fillColor: Colors.white,
-                  contentPadding:
-                      const EdgeInsets.symmetric(
+                  contentPadding: const EdgeInsets.symmetric(
                     horizontal: 16,
                     vertical: 17,
                   ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(16),
-                    borderSide: const BorderSide(
-                      color: Color(0xffE5E9F0),
-                    ),
+                    borderSide: const BorderSide(color: Color(0xffE5E9F0)),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(16),
-                    borderSide: const BorderSide(
-                      color: Color(0xffE5E9F0),
-                    ),
+                    borderSide: const BorderSide(color: Color(0xffE5E9F0)),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(16),
-                    borderSide: const BorderSide(
-                      color: primary,
-                      width: 1.6,
-                    ),
+                    borderSide: const BorderSide(color: primary, width: 1.6),
                   ),
                 ),
               ),
@@ -291,12 +266,10 @@ class _ForgotPasswordScreenState
                 width: double.infinity,
                 height: 55,
                 child: ElevatedButton(
-                  onPressed:
-                      isLoading ? null : _forgotPassword,
+                  onPressed: isLoading ? null : _forgotPassword,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: primary,
-                    disabledBackgroundColor:
-                        const Color(0xff9EAFE9),
+                    disabledBackgroundColor: const Color(0xff9EAFE9),
                     foregroundColor: Colors.white,
                     elevation: 4,
                     shape: RoundedRectangleBorder(
@@ -307,20 +280,15 @@ class _ForgotPasswordScreenState
                       ? const SizedBox(
                           height: 22,
                           width: 22,
-                          child:
-                              CircularProgressIndicator(
+                          child: CircularProgressIndicator(
                             strokeWidth: 2.4,
                             color: Colors.white,
                           ),
                         )
                       : Row(
-                          mainAxisAlignment:
-                              MainAxisAlignment.center,
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Icon(
-                              Icons.send_rounded,
-                              size: 19,
-                            ),
+                            const Icon(Icons.send_rounded, size: 19),
                             const SizedBox(width: 9),
                             Text(
                               'Send Reset Instructions',
@@ -341,13 +309,10 @@ class _ForgotPasswordScreenState
                 decoration: BoxDecoration(
                   color: const Color(0xffEDF3FF),
                   borderRadius: BorderRadius.circular(15),
-                  border: Border.all(
-                    color: const Color(0xffDDE8FF),
-                  ),
+                  border: Border.all(color: const Color(0xffDDE8FF)),
                 ),
                 child: Row(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Icon(
                       Icons.info_outline_rounded,

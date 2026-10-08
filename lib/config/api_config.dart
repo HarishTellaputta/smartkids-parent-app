@@ -2,7 +2,7 @@ class ApiConfig {
   // =========================================================
   // CHANGE ONLY THIS URL WHEN YOUR BACKEND DOMAIN CHANGES
   // =========================================================
-  static const String baseUrl = "http://10.51.231.80:8080";
+  static const String baseUrl = "http://10.24.241.80:8080";
 
   // =========================================================
   // AUTH
