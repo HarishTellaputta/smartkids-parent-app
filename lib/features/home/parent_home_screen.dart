@@ -27,6 +27,8 @@ import '../../features/birthday/birthday_wishes_screen.dart';
 import '../../features/birthday/models/student_birthday_chat.dart';
 import '../notices/notices_screen.dart';
 import '../performance/performance_screen.dart';
+import '../../features/results/exam_schedule_screen.dart';
+import '../../features/feedback/parent_feedback_screen.dart';
 
 class ParentHomeScreen extends StatefulWidget {
   const ParentHomeScreen({super.key});
@@ -1517,12 +1519,12 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
             page: PerformanceScreen(student: student),
           ),
           _QuickAccessItem(
-            title: 'Chat',
-            subtitle: 'Communication',
-            icon: Icons.chat_bubble_rounded,
-            color: const Color(0xFF2789A7),
-            background: const Color(0xFFE5F6FA),
-            page: const ChatScreen(),
+            title: 'Complaints\n''&\n''Suggestions',
+            subtitle: 'Share your feedback',
+            icon: Icons.feedback_outlined,
+            color: const Color(0xFF7B61A8),
+            background: const Color(0xFFF1EBFA),
+            page: ParentFeedbackScreen(student: student),
           ),
           _QuickAccessItem(
             title: 'MCQ Tests',
@@ -1533,12 +1535,12 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
             page: McqTestsScreen(student: student),
           ),
           _QuickAccessItem(
-            title: 'Achievements',
-            subtitle: 'Awards & progress',
-            icon: Icons.emoji_events_rounded,
-            color: const Color(0xFFB78613),
-            background: const Color(0xFFFFF6D9),
-            page: const AchievementsScreen(),
+            title: 'Exam Schedule',
+            subtitle: 'Exam dates & timings',
+            icon: Icons.event_note_rounded,
+            color: const Color(0xFF2789A7),
+            background: const Color(0xFFE5F6FA),
+            page: ExamScheduleScreen(student: student),
           ),
         ];
 
