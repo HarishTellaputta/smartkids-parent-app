@@ -1,8 +1,16 @@
 import 'package:flutter/material.dart';
+import 'dart:typed_data';
+
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 import '../../models/student_response.dart';
 import '../../services/api_service.dart';
 import '../../services/exam_service.dart';
+import 'dart:io';
+
+import 'package:path_provider/path_provider.dart';
 
 class ResultsScreen extends StatefulWidget {
   final StudentResponse student;
@@ -45,6 +53,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
   double percentage = 0;
 
   String overallGrade = '-';
+  bool _downloadingReport = false;
 
   int? classRank;
   int? sectionRank;
@@ -1758,29 +1767,326 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
+  Future<void> _downloadReportCardPdf() async {
+    if (_downloadingReport || results.isEmpty) return;
+
+    setState(() => _downloadingReport = true);
+
+    try {
+      final pdf = pw.Document();
+
+      final studentName = widget.student.name.trim().isEmpty
+          ? 'Student'
+          : widget.student.name.trim();
+
+      final examName = selectedExam ?? 'Examination';
+      final className = widget.student.className ?? '-';
+      final sectionName = widget.student.sectionName ?? '-';
+
+      final pdfSubjects = results.map((result) {
+        final marks = _toDouble(result['marksObtained']);
+        final maxMarks = _toDouble(result['maxMarks']);
+        final subjectPercentage = _toDouble(result['percentage']);
+
+        return [
+          result['subjectName']?.toString() ?? 'Subject',
+          result['examDate']?.toString() ?? '-',
+          _formatNumber(marks),
+          _formatNumber(maxMarks),
+          '${subjectPercentage.toStringAsFixed(1)}%',
+          _getSubjectGrade(
+            subjectPercentage,
+            backendGrade: result['grade']?.toString(),
+          ),
+        ];
+      }).toList();
+
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(28),
+          build: (context) => [
+            // Header
+            pw.Container(
+              width: double.infinity,
+              padding: const pw.EdgeInsets.all(22),
+              decoration: pw.BoxDecoration(
+                color: PdfColor.fromHex('#3730A3'),
+                borderRadius: pw.BorderRadius.circular(14),
+              ),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.center,
+                children: [
+                  pw.Text(
+                    'STUDENT REPORT CARD',
+                    style: pw.TextStyle(
+                      color: PdfColors.white,
+                      fontSize: 21,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                  pw.SizedBox(height: 8),
+                  pw.Text(
+                    examName,
+                    style: const pw.TextStyle(
+                      color: PdfColors.white,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            pw.SizedBox(height: 20),
+
+            // Student Information
+            pw.Container(
+              padding: const pw.EdgeInsets.all(16),
+              decoration: pw.BoxDecoration(
+                color: PdfColor.fromHex('#F8FAFC'),
+                border: pw.Border.all(color: PdfColor.fromHex('#E2E8F0')),
+                borderRadius: pw.BorderRadius.circular(10),
+              ),
+              child: pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Expanded(child: _pdfInfo('STUDENT', studentName)),
+                  pw.SizedBox(width: 8),
+                  pw.Expanded(child: _pdfInfo('CLASS', className)),
+                  pw.SizedBox(width: 8),
+                  pw.Expanded(child: _pdfInfo('SECTION', sectionName)),
+                ],
+              ),
+            ),
+
+            pw.SizedBox(height: 22),
+
+            // Subject Performance
+            pw.Text(
+              'Subject Performance',
+              style: pw.TextStyle(fontSize: 15, fontWeight: pw.FontWeight.bold),
+            ),
+
+            pw.SizedBox(height: 10),
+
+            pw.TableHelper.fromTextArray(
+              headers: ['SUBJECT', 'EXAM DATE', 'MARKS', 'MAX', '%', 'GRADE'],
+              data: pdfSubjects,
+              headerDecoration: pw.BoxDecoration(
+                color: PdfColor.fromHex('#EEF2FF'),
+              ),
+              headerStyle: pw.TextStyle(
+                fontSize: 8,
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColor.fromHex('#3730A3'),
+              ),
+              cellStyle: const pw.TextStyle(fontSize: 8),
+              cellPadding: const pw.EdgeInsets.all(7),
+              border: pw.TableBorder.all(
+                color: PdfColor.fromHex('#E2E8F0'),
+                width: 0.6,
+              ),
+              columnWidths: {
+                0: const pw.FlexColumnWidth(2.4),
+                1: const pw.FlexColumnWidth(1.5),
+                2: const pw.FlexColumnWidth(1),
+                3: const pw.FlexColumnWidth(0.8),
+                4: const pw.FlexColumnWidth(0.8),
+                5: const pw.FlexColumnWidth(0.8),
+              },
+            ),
+
+            pw.SizedBox(height: 22),
+
+            // Overall Performance
+            pw.Text(
+              'Overall Performance',
+              style: pw.TextStyle(fontSize: 15, fontWeight: pw.FontWeight.bold),
+            ),
+
+            pw.SizedBox(height: 10),
+
+            pw.Container(
+              padding: const pw.EdgeInsets.all(16),
+              decoration: pw.BoxDecoration(
+                color: PdfColor.fromHex('#F8FAFC'),
+                borderRadius: pw.BorderRadius.circular(10),
+                border: pw.Border.all(color: PdfColor.fromHex('#E2E8F0')),
+              ),
+              child: pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Expanded(
+                    child: _pdfInfo(
+                      'TOTAL MARKS',
+                      '${_formatNumber(totalMarks)} / '
+                          '${_formatNumber(totalMaxMarks)}',
+                    ),
+                  ),
+                  pw.SizedBox(width: 5),
+                  pw.Expanded(
+                    child: _pdfInfo(
+                      'PERCENTAGE',
+                      '${percentage.toStringAsFixed(1)}%',
+                    ),
+                  ),
+                  pw.SizedBox(width: 5),
+                  pw.Expanded(child: _pdfInfo('OVERALL GRADE', overallGrade)),
+                  pw.SizedBox(width: 5),
+                  pw.Expanded(
+                    child: _pdfInfo('CLASS RANK', classRank?.toString() ?? '-'),
+                  ),
+                  pw.SizedBox(width: 5),
+                  pw.Expanded(
+                    child: _pdfInfo(
+                      'SECTION RANK',
+                      sectionRank?.toString() ?? '-',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Teacher Remarks
+            if (remarks != null && remarks!.trim().isNotEmpty) ...[
+              pw.SizedBox(height: 18),
+              pw.Text(
+                'Teacher Remarks',
+                style: pw.TextStyle(
+                  fontSize: 13,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 7),
+              pw.Text(remarks!),
+            ],
+
+            pw.SizedBox(height: 35),
+
+            // Signatures
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                _pdfSignature('Class Teacher'),
+                _pdfSignature('Principal'),
+              ],
+            ),
+
+            pw.SizedBox(height: 25),
+
+            // Footer
+            pw.Center(
+              child: pw.Text(
+                'Generated by SmartKids School Management System',
+                style: pw.TextStyle(
+                  fontSize: 8,
+                  color: PdfColor.fromHex('#64748B'),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+
+      // Generate PDF
+      final Uint8List bytes = await pdf.save();
+
+      final safeStudentName = studentName.replaceAll(
+        RegExp(r'[^a-zA-Z0-9]+'),
+        '_',
+      );
+
+      final safeExamName = examName.replaceAll(RegExp(r'[^a-zA-Z0-9]+'), '_');
+
+      final fileName = '${safeStudentName}_${safeExamName}_Report_Card.pdf';
+
+      if (!mounted) return;
+
+      // Open the platform PDF print/save interface.
+      await Printing.layoutPdf(
+        onLayout: (PdfPageFormat format) async => bytes,
+        name: fileName,
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Unable to generate report card: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _downloadingReport = false);
+      }
+    }
+  }
+
+  pw.Widget _pdfInfo(String title, String value) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Text(
+          title,
+          style: pw.TextStyle(
+            fontSize: 8,
+            color: PdfColor.fromHex('#64748B'),
+            fontWeight: pw.FontWeight.bold,
+          ),
+        ),
+        pw.SizedBox(height: 4),
+        pw.Text(
+          value,
+          style: pw.TextStyle(
+            fontSize: 11,
+            fontWeight: pw.FontWeight.bold,
+            color: PdfColor.fromHex('#111827'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  pw.Widget _pdfSignature(String title) {
+    return pw.SizedBox(
+      width: 140,
+      child: pw.Column(
+        children: [
+          pw.SizedBox(height: 25),
+          pw.Container(height: 1, color: PdfColor.fromHex('#CBD5E1')),
+          pw.SizedBox(height: 6),
+          pw.Text(title),
+        ],
+      ),
+    );
+  }
+
   // ============================================================
   // REPORT BUTTON
   // ============================================================
 
   Widget _reportCardButton() {
     return SizedBox(
-      height: 52,
-      child: OutlinedButton.icon(
-        onPressed: () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Report card download will be available soon.'),
-            ),
-          );
-        },
-        icon: const Icon(Icons.download_rounded, size: 19),
-        label: const Text(
-          'Download Report Card',
-          style: TextStyle(fontWeight: FontWeight.w700),
+      height: 54,
+      child: ElevatedButton.icon(
+        onPressed: _downloadingReport ? null : _downloadReportCardPdf,
+        icon: _downloadingReport
+            ? const SizedBox(
+                height: 18,
+                width: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+            : const Icon(Icons.download_rounded, size: 20),
+        label: Text(
+          _downloadingReport ? 'Downloading...' : 'Download Report Card',
+          style: const TextStyle(fontWeight: FontWeight.w800),
         ),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: primary,
-          side: const BorderSide(color: primary),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: primary,
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: primary.withOpacity(0.6),
+          elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(15),
           ),

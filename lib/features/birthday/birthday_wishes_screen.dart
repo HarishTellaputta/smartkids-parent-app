@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-
+import 'dart:async';
+import 'dart:convert';
 import '../../features/birthday/models/birthday_chat_message.dart';
 import '../../features/birthday/models/student_birthday_chat.dart';
 import '../../services/api_service.dart';
@@ -50,6 +51,8 @@ class _BirthdayWishesScreenState extends State<BirthdayWishesScreen>
 
   BirthdayChatMessage? replyingTo;
   BirthdayChatMessage? editingMessage;
+  Timer? _refreshTimer;
+  bool _isSilentRefreshing = false;
 
   // ============================================================
   // STATE
@@ -75,14 +78,27 @@ class _BirthdayWishesScreenState extends State<BirthdayWishesScreen>
       duration: const Duration(milliseconds: 500),
     );
 
+    wishFocusNode.addListener(() {
+      if (wishFocusNode.hasFocus) {
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (mounted) {
+            _scrollToBottom();
+          }
+        });
+      }
+    });
+
     _loadBirthdayData();
   }
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
+
     wishController.dispose();
     scrollController.dispose();
     wishFocusNode.dispose();
+
     _headerAnimationController.dispose();
 
     super.dispose();
@@ -154,7 +170,7 @@ class _BirthdayWishesScreenState extends State<BirthdayWishesScreen>
       setState(() {
         isLoading = false;
       });
-
+      _startAutoRefresh();
       _headerAnimationController.forward();
 
       _scrollToBottom(animated: false);
@@ -177,21 +193,118 @@ class _BirthdayWishesScreenState extends State<BirthdayWishesScreen>
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception(
-        'Unable to load birthday wishes (${response.statusCode})',
+        'Unable to load birthday messages (${response.statusCode})',
       );
     }
 
-    final decoded = ApiService.decodeResponse(response);
+    final dynamic decoded = ApiService.decodeResponse(response);
 
     if (decoded is! List) {
       throw Exception('Invalid birthday messages response');
     }
 
-    wishes = decoded
+    final loadedMessages = decoded
+        .whereType<Map>()
         .map(
-          (item) => BirthdayChatMessage.fromJson(item as Map<String, dynamic>),
+          (item) =>
+              BirthdayChatMessage.fromJson(Map<String, dynamic>.from(item)),
         )
         .toList();
+
+    if (!mounted) return;
+
+    setState(() {
+      wishes = loadedMessages;
+    });
+  }
+
+  void _startAutoRefresh() {
+    _refreshTimer?.cancel();
+
+    _refreshTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+      final studentId = birthdayData?.studentId;
+
+      if (studentId != null) {
+        _silentRefresh(studentId);
+      }
+    });
+  }
+
+  Future<void> _silentRefresh(int studentId) async {
+    if (!mounted || _isSilentRefreshing) return;
+
+    _isSilentRefreshing = true;
+
+    try {
+      final response = await BirthdayChatService.getBirthdayMessages(studentId);
+
+      if (!mounted || response.statusCode != 200) return;
+
+      final dynamic decoded = jsonDecode(response.body);
+
+      if (decoded is! List) return;
+
+      final updatedMessages = decoded
+          .whereType<Map>()
+          .map(
+            (item) =>
+                BirthdayChatMessage.fromJson(Map<String, dynamic>.from(item)),
+          )
+          .toList();
+
+      if (!mounted) return;
+
+      if (!_areMessagesEqual(wishes, updatedMessages)) {
+        setState(() {
+          wishes = updatedMessages;
+        });
+      }
+    } catch (e) {
+      debugPrint('Birthday chat background refresh failed: $e');
+    } finally {
+      _isSilentRefreshing = false;
+    }
+  }
+
+  bool _areMessagesEqual(
+    List<BirthdayChatMessage> oldMessages,
+    List<BirthdayChatMessage> newMessages,
+  ) {
+    if (oldMessages.length != newMessages.length) return false;
+
+    for (var i = 0; i < oldMessages.length; i++) {
+      final a = oldMessages[i];
+      final b = newMessages[i];
+
+      if (a.id != b.id ||
+          a.studentId != b.studentId ||
+          a.senderId != b.senderId ||
+          a.senderName != b.senderName ||
+          a.message != b.message ||
+          a.edited != b.edited ||
+          a.deleted != b.deleted ||
+          a.createdAt != b.createdAt ||
+          a.updatedAt != b.updatedAt ||
+          a.replyToMessageId != b.replyToMessageId ||
+          a.replyToMessage != b.replyToMessage ||
+          a.reactions.length != b.reactions.length) {
+        return false;
+      }
+
+      for (var j = 0; j < a.reactions.length; j++) {
+        final oldReaction = a.reactions[j];
+        final newReaction = b.reactions[j];
+
+        if (oldReaction.reaction != newReaction.reaction ||
+            oldReaction.count != newReaction.count ||
+            oldReaction.reactedByCurrentUser !=
+                newReaction.reactedByCurrentUser) {
+          return false;
+        }
+      }
+    }
+
+    return true;
   }
 
   // ============================================================
@@ -1762,6 +1875,7 @@ class _BirthdayWishesScreenState extends State<BirthdayWishesScreen>
   }
 
   void _showComposerEmojiPicker() {
+    FocusScope.of(context).unfocus();
     const emojis = [
       '😀',
       '😂',
@@ -1863,11 +1977,9 @@ class _BirthdayWishesScreenState extends State<BirthdayWishesScreen>
 
                     return InkWell(
                       borderRadius: BorderRadius.circular(14),
+
                       onTap: () {
-                        Navigator.pop(context);
-
                         final currentText = wishController.text;
-
                         final selection = wishController.selection;
 
                         final start = selection.start >= 0
@@ -1883,18 +1995,16 @@ class _BirthdayWishesScreenState extends State<BirthdayWishesScreen>
                             emoji +
                             currentText.substring(end);
 
-                        wishController.text = newText;
-
-                        final newCursorPosition = start + emoji.length;
-
-                        wishController.selection = TextSelection.collapsed(
-                          offset: newCursorPosition,
+                        wishController.value = TextEditingValue(
+                          text: newText,
+                          selection: TextSelection.collapsed(
+                            offset: start + emoji.length,
+                          ),
                         );
-
-                        wishFocusNode.requestFocus();
 
                         setState(() {});
                       },
+
                       child: Container(
                         decoration: BoxDecoration(
                           color: const Color(0xFFF5F7FA),
